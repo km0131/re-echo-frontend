@@ -1,0 +1,86 @@
+/* デザイントークン（docs/design.md 1章）。値は「R G B」で持ち、tailwind.config.ts から rgb() で使う。 */
+:root {
+  --c-paper: 246 241 231; /* #F6F1E7 */
+  --c-grid: 46 58 85; /* rgba(46,58,85,.07) */
+  --c-card: 255 253 248; /* #FFFDF8 */
+  --c-ink: 43 52 72; /* #2B3448 */
+  --c-navy: 46 58 85; /* #2E3A55 */
+  --c-navy-deep: 28 36 56; /* #1C2438 */
+  --c-muted: 85 96 122; /* #55607A */
+  --c-sepia: 122 85 48; /* #7A5530 */
+  --c-sepia-ink: 92 74 51; /* #5C4A33 */
+  --c-sand: 217 200 168; /* #D9C8A8 */
+  --c-line: 228 220 203; /* #E4DCCB */
+  --c-line-soft: 239 232 218; /* #EFE8DA */
+  --c-field: 211 201 181; /* #D3C9B5 */
+  --c-highlight: 237 230 214; /* #EDE6D6 */
+  --c-dash: 184 172 150; /* #B8AC96 */
+  --c-tape: 214 196 160; /* rgba(214,196,160,.75) */
+  --c-yes: 47 93 138; /* #2F5D8A */
+  --c-maybe: 160 96 28; /* #A0601C */
+  --c-maybe-ink: 138 79 18; /* #8A4F12 */
+  --c-no: 110 104 100; /* #6E6864 */
+  --c-off: 138 132 126; /* #8A847E */
+  --c-kraft: 201 162 107; /* #C9A26B */
+  --c-photo-1: 169 151 128; /* #A99780 */
+  --c-photo-2: 191 174 148; /* #BFAE94 */
+  --c-photo-3: 143 129 112; /* #8F8170 */
+  --c-photo-4: 181 162 133; /* #B5A285 */
+  --c-photo-5: 156 139 116; /* #9C8B74 */
+  --c-overlay: 30 24 16; /* rgba(30,24,16,.35) */
+  --c-shadow: 43 52 72; /* 影の色 */
+  /* ポラロイドの白枠（ダークモードでも白のまま） */
+  --c-polaroid: 255 253 248;
+  color-scheme: light;
+}
+
+/* 色が変わらない面（白いポラロイド・写真の上・拡大表示の暗幕）の上に置く色 */
+:root {
+  --c-polaroid-ink: 92 74 51; /* ポラロイドのキャプション（白枠の上なので常に濃い） */
+  --c-on-photo: 255 253 248; /* ヘッダー写真の上の文字 */
+  --c-scrim: 43 52 72; /* 拡大表示の暗幕（ink の90%） */
+  --c-on-scrim: 246 241 231;
+  --c-on-scrim-muted: 217 200 168;
+}
+
+/* 黒板テーマ（docs/design.md 7章）。トークンを差し替えるだけで切り替わる。ポラロイドの白枠は白のまま */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-paper: 31 42 38; /* #1F2A26 深い緑がかった黒 */
+    --c-grid: 237 234 224;
+    --c-card: 40 53 48; /* 少し明るい黒板色 */
+    --c-ink: 237 234 224; /* チョーク色 #EDEAE0 */
+    --c-navy: 232 228 214; /* 見出し・主ボタン（白いチョーク） */
+    --c-navy-deep: 206 201 186;
+    --c-muted: 186 189 178;
+    --c-sepia: 226 196 150;
+    --c-sepia-ink: 232 210 172;
+    --c-sand: 70 82 76; /* 明るい面（決定カード）の上の補足 */
+    --c-line: 64 80 73;
+    --c-line-soft: 54 69 63;
+    --c-field: 103 120 112;
+    --c-highlight: 50 66 60;
+    --c-dash: 108 124 116;
+    --c-tape: 214 196 160;
+    --c-yes: 132 172 214; /* 青いチョーク */
+    --c-maybe: 228 168 98; /* 黄色いチョーク */
+    --c-maybe-ink: 240 190 128;
+    --c-no: 190 184 178;
+    --c-off: 150 158 152;
+    --c-kraft: 201 162 107;
+    --c-shadow: 0 0 0;
+    color-scheme: dark;
+  }
+
+  /* 方眼の代わりにチョークのかすれ */
+  body {
+    background-image:
+      radial-gradient(ellipse 60% 40% at 20% 15%, rgb(var(--c-grid) / 0.05), transparent 70%),
+      radial-gradient(ellipse 50% 35% at 85% 60%, rgb(var(--c-grid) / 0.04), transparent 70%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='c'><feTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .93  0 0 0 0 .92  0 0 0 0 .88  0 0 0 .07 0'/></filter><rect width='100%' height='100%' filter='url(%23c)'/></svg>") !important;
+    background-size:
+      100% 100%,
+      100% 100%,
+      220px 220px !important;
+  }
+}

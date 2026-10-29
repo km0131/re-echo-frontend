@@ -1,0 +1,89 @@
+@import './styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* 方眼ノートの背景（docs/design.md 1.5）。すべての画面の body に適用する */
+  body {
+    @apply bg-paper font-sans text-body text-ink antialiased;
+    background-image:
+      linear-gradient(theme(colors.grid) 1px, transparent 1px),
+      linear-gradient(90deg, theme(colors.grid) 1px, transparent 1px);
+    background-size: 20px 20px;
+    min-height: 100dvh;
+  }
+
+  /* 手書き風フォントは太字にしない */
+  .font-hand {
+    font-weight: 400;
+  }
+}
+
+/* フォーカスリング（navy の2pxアウトライン）。@layer の中だと Tailwind に消されるので外に置く */
+:focus-visible {
+  outline: 2px solid theme(colors.navy.DEFAULT);
+  outline-offset: 2px;
+}
+
+@layer base {
+  button,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  /* ヘッダー写真のフィルムノイズ（SVG の feTurbulence。色は持たない） */
+  .film-noise {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    background-size: 160px 160px;
+    mix-blend-mode: multiply;
+    opacity: 0.18;
+  }
+  /* 写真をセピア調に（ヘッダー用） */
+  .sepia-photo {
+    filter: sepia(0.35) saturate(0.85) contrast(0.95) brightness(0.98);
+  }
+}
+
+@layer utilities {
+  @keyframes drop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-14px) rotate(var(--tilt, 0deg)) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) rotate(var(--tilt, 0deg)) scale(1);
+    }
+  }
+  /* reduced-motion では動かさない（傾きはそのまま） */
+  @media (prefers-reduced-motion: no-preference) {
+    .animate-drop-in {
+      animation: drop-in 0.6s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+    }
+  }
+}
+
+@layer utilities {
+  /* 新しい回答の列をふわっと強調する */
+  @keyframes fresh-col {
+    0% {
+      background-color: rgb(var(--c-highlight));
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .fresh-col {
+      animation: fresh-col 2.5s ease-out both;
+    }
+  }
+}

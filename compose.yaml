@@ -1,0 +1,42 @@
+# 動作チェック用。API は backend リポジトリの Docker（ホストの 8080）につなぐ。
+name: chosei-front
+
+x-common: &common
+  build:
+    context: .
+    target: dev
+  volumes:
+    - .:/app
+    # ホスト側の node_modules と混ざらないよう名前付きボリュームにする
+    - node_modules:/app/node_modules
+  extra_hosts:
+    # Linux でも host.docker.internal が引けるようにする
+    - "host.docker.internal:host-gateway"
+
+services:
+  web:
+    <<: *common
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://host.docker.internal:8080}
+      VITE_USE_POLLING: ${VITE_USE_POLLING:-false}
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort"
+
+  # 本番と同じビルド＋Pages Functions（docker compose --profile preview up preview）
+  preview:
+    <<: *common
+    profiles: ["preview"]
+    ports:
+      - "8788:8788"
+    environment:
+      # 本番と同じ「別オリジン」の状態（direct モード）でビルドする
+      VITE_API_BASE_URL: ${PREVIEW_API_BASE_URL:-http://localhost:8080/api/v1}
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://host.docker.internal:8080}
+    command: >
+      sh -c "npm install && npm run build -- --outDir /tmp/preview-dist &&
+             npx wrangler pages dev /tmp/preview-dist --ip 0.0.0.0 --port 8788 --binding API_ORIGIN=$${VITE_PROXY_TARGET}"
+
+volumes:
+  node_modules:

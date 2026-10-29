@@ -1,0 +1,6 @@
+dist
+node_modules
+.wrangler
+docs
+prompts
+CLAUDE.md
