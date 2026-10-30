@@ -38,11 +38,12 @@ export function Polaroid({
       {caption && (
         <figcaption
           className={cx(
-            'absolute inset-x-2 bottom-0 flex h-9 items-center justify-center truncate font-hand text-frame-ink',
+            'absolute inset-x-2 bottom-0 flex h-9 items-center justify-center font-hand text-frame-ink',
             captionClass,
           )}
         >
-          {caption}
+          {/* 1行に収まらなければ「…」で切る（フレックスの中では子要素に truncate を付けないと切れない） */}
+          <span className="min-w-0 truncate">{caption}</span>
         </figcaption>
       )}
     </figure>

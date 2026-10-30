@@ -1,4 +1,4 @@
-// API の型（docs/spec.md 5章・12章）
+// API の型（docs/spec.md 5章・12章・14章）
 import type { Choice } from '../ui/styles'
 
 export type Counts = { yes: number; maybe: number; no: number }
@@ -7,6 +7,8 @@ export type PublicEvent = {
   slug: string
   title: string
   gateCaption: string
+  /** 合言葉の質問（修正01）。なければ null */
+  passphraseQuestion: string | null
   year: number
   publicPhotoUrl: string | null
   ogImageUrl?: string | null
@@ -102,6 +104,9 @@ export type AdminEvent = {
   description: string
   endsOn: string
   gateCaption: string
+  passphraseQuestion: string | null
+  /** 登録されている答えの数（答えそのものは返らない） */
+  passphraseCount: number
   classSize: number | null
   status: EventStatus
   role: 'owner' | 'coadmin'
@@ -119,7 +124,9 @@ export type AdminEvent = {
 export type CreateEventInput = {
   title: string
   description: string
-  passphrase: string
+  passphraseQuestion: string | null
+  /** 合言葉の答え（1〜5個） */
+  passphrases: string[]
   endsOn: string
   gateCaption: string
   classSize: number | null
@@ -141,7 +148,11 @@ export type Visibility = 'public' | 'members' | 'draft'
 
 export type PhotoItem = {
   id: string
+  /** タイトル（修正01）。なければ null */
+  title: string | null
   caption: string
+  /** 表示中のコメント数 */
+  commentCount: number
   width: number
   height: number
   thumbUrl: string | null
@@ -165,3 +176,16 @@ export type AdminPhoto = PhotoItem & {
   bytes: number
   hideRequests: { reason: string; createdAt: string; resolvedAt: string | null }[]
 }
+
+// --- 写真のコメント（修正01） ---
+export type PhotoComment = {
+  id: string
+  /** 名前（任意）。null なら画面では「だれか」 */
+  authorName: string | null
+  body: string
+  createdAt: string
+  mine: boolean
+  /** 幹事向けの一覧だけに付く */
+  status?: 'visible' | 'hidden'
+}
+export type CreateCommentResult = { comment: PhotoComment; deleteToken: string }

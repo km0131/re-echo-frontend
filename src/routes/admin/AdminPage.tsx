@@ -2,10 +2,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { CopyButton } from '../../components/CopyButton'
+import { AnswersEditor, QuestionField } from '../../components/PassphraseFields'
 import { Page, PageTitle } from '../../components/Page'
 import { adminKeys, useAdminEvent, useSessionGuard } from '../../lib/admin'
 import { useAdminPhotos } from '../../lib/photos'
 import { api, ApiError } from '../../lib/api'
+import {
+  answersToSend,
+  checkAnswers,
+  MAX_QUESTION_LEN,
+  newAnswer,
+  type AnswerRow,
+} from '../../lib/passphrase'
+import { charCount } from '../../lib/text'
 import { storage } from '../../lib/storage'
 import type { AdminEvent } from '../../lib/types'
 import {
@@ -15,13 +24,11 @@ import {
   Dialog,
   EmptyState,
   ErrorNotice,
-  Field,
   Notice,
   PageSkeleton,
   SmallButton,
   Tabs,
   Tag,
-  TextInput,
   TopBar,
 } from '../../ui'
 import { CandidatesCard } from './CandidatesCard'
@@ -171,31 +178,54 @@ function SecretsCard({ event: d }: { event: AdminEvent }) {
   const guard = useSessionGuard()
   const owner = d.role === 'owner'
   const [dialog, setDialog] = useState<'passphrase' | 'rotate' | null>(null)
-  const [passphrase, setPassphrase] = useState('')
+  const [answers, setAnswers] = useState<AnswerRow[]>(() => [newAnswer()])
+  const [answerError, setAnswerError] = useState<string | null>(null)
+  const [question, setQuestion] = useState(d.passphraseQuestion ?? '')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adminKey, setAdminKey] = useState(() => storage.getAdmin(d.slug))
   const adminUrl = adminKey ? `${d.shareUrl}/admin?key=${adminKey}` : null
 
+  // 質問だけの変更は、みんなの通過トークンを失効させないので確認なしで保存する
+  const saveQuestion = useMutation({
+    mutationFn: () =>
+      api<AdminEvent>(`/events/${d.slug}/admin`, {
+        method: 'PATCH',
+        body: { passphraseQuestion: question.trim() || null },
+        auth: { session: true, admin: d.slug },
+      }),
+    onSuccess: (res) => {
+      qc.setQueryData(adminKeys.event(d.slug), res)
+      setQuestion(res.passphraseQuestion ?? '')
+      setError(null)
+      setMessage(res.passphraseQuestion ? '質問を保存しました' : '質問を消しました')
+    },
+    onError: (e) => {
+      if (!guard(e)) setError(e.message)
+    },
+  })
+  const questionChanged = question.trim() !== (d.passphraseQuestion ?? '')
+
   const changePassphrase = useMutation({
     mutationFn: () =>
       api(`/events/${d.slug}/passphrase`, {
         method: 'PUT',
-        body: { passphrase },
+        body: { passphrases: answersToSend(answers) },
         auth: { session: true, admin: d.slug },
       }),
     onSuccess: () => {
       setDialog(null)
-      setPassphrase('')
+      setAnswers([newAnswer()])
       setError(null)
-      setMessage('合言葉を変えました。みんなには新しい合言葉を伝えてください')
+      setMessage('合言葉の答えを変えました。みんなには新しい合言葉を伝えてください')
+      void qc.invalidateQueries({ queryKey: adminKeys.event(d.slug) })
       // 幹事自身の参加者画面の通過トークンも無効になる
       storage.setGate(d.slug, null)
       void qc.invalidateQueries({ queryKey: ['event', d.slug] })
     },
     onError: (e) => {
-      setDialog(null)
-      if (!guard(e)) setError(e.message)
+      // 「同じ答えが重なっています」などは、ダイアログを開いたまま出して直せるようにする
+      if (!guard(e)) setAnswerError(e.message)
     },
   })
 
@@ -225,13 +255,40 @@ function SecretsCard({ event: d }: { event: AdminEvent }) {
       {message && <Notice>{message}</Notice>}
       {error && <ErrorNotice message={error} />}
 
+      <form
+        className="flex flex-col gap-2 border-b border-line-soft pb-3"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (charCount(question.trim()) > MAX_QUESTION_LEN)
+            return setError(`質問は${MAX_QUESTION_LEN}文字以内にしてください`)
+          saveQuestion.mutate()
+        }}
+      >
+        <QuestionField value={question} onChange={setQuestion} />
+        {questionChanged && (
+          <div>
+            <SmallButton type="submit" disabled={saveQuestion.isPending}>
+              {saveQuestion.isPending ? '保存しています…' : '質問を保存'}
+            </SmallButton>
+          </div>
+        )}
+      </form>
+
       <div className="flex items-center justify-between gap-3 border-b border-line-soft pb-3">
         <div>
-          <p className="text-label font-medium">合言葉</p>
-          <p className="text-note text-muted">変えると、全員がもう一度入力することになります</p>
+          <p className="text-label font-medium">答え：{d.passphraseCount}つ登録済み</p>
+          <p className="text-note text-muted">答えは見られません。変えるときは入れ直します</p>
         </div>
-        <SmallButton className="shrink-0" onClick={() => setDialog('passphrase')}>
-          変更
+        <SmallButton
+          className="shrink-0"
+          onClick={() => {
+            setAnswers([newAnswer()])
+            setAnswerError(null)
+            setDialog('passphrase')
+          }}
+        >
+          答えを変更
         </SmallButton>
       </div>
 
@@ -258,26 +315,23 @@ function SecretsCard({ event: d }: { event: AdminEvent }) {
 
       <Dialog
         open={dialog === 'passphrase'}
-        title="合言葉を変えますか？"
-        confirmLabel="この合言葉にする"
+        title="合言葉の答えを変えますか？"
+        confirmLabel="この答えにする"
         busy={changePassphrase.isPending}
         onClose={() => setDialog(null)}
         onConfirm={() => {
-          if (passphrase.trim()) changePassphrase.mutate()
+          const err = checkAnswers(answers)
+          setAnswerError(err)
+          if (!err) changePassphrase.mutate()
         }}
       >
-        <p>いま入っている人も、もう一度合言葉を入れることになります。</p>
-        <Field label="新しい合言葉">
-          {(id) => (
-            <TextInput
-              id={id}
-              value={passphrase}
-              maxLength={64}
-              autoComplete="off"
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-          )}
-        </Field>
+        <p>変更すると、みんなもう一度合言葉を入れ直すことになります。</p>
+        <AnswersEditor answers={answers} onChange={setAnswers} />
+        {answerError && (
+          <p className="text-note text-maybe-ink" role="alert">
+            {answerError}
+          </p>
+        )}
       </Dialog>
 
       <Dialog

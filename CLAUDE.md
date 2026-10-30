@@ -84,7 +84,7 @@ frontend/
 
 ## 6. セキュリティの基本
 
-- `public/_headers` で CSP を設定する（スクリプトは自ドメインのみ、`connect-src` は自ドメインと `chosei-api.ドメイン`、フォントは Google Fonts のみ）。
+- `public/_headers` で CSP を設定する（スクリプトは自ドメインのみ。例外：Cloudflare Turnstile（`https://challenges.cloudflare.com` の script と frame）。`connect-src` は自ドメインと `chosei-api.ドメイン`、フォントは Google Fonts のみ）。
 - 参加者のページには `<meta name="robots" content="noindex">`。
 - トークンは LocalStorage に置くため、`dangerouslySetInnerHTML` は使わない。ユーザーが書いた文字列（名前・コメント・キャプション）は必ずテキストとして描画する。
 

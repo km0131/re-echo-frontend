@@ -36,6 +36,8 @@ export default {
         },
         frame: { DEFAULT: c('polaroid'), ink: c('polaroid-ink') },
         'on-photo': c('on-photo'),
+        board: c('board'),
+        chalk: { DEFAULT: c('chalk'), yellow: c('chalk-yellow') },
         'on-scrim': { DEFAULT: c('on-scrim'), muted: c('on-scrim-muted') },
         overlay: 'rgb(var(--c-overlay) / 0.35)',
         scrim: 'rgb(var(--c-scrim) / 0.9)',
@@ -98,10 +100,13 @@ export default {
       keyframes: {
         breathe: { '0%, 100%': { opacity: '1' }, '50%': { opacity: '.55' } },
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        // 付箋がふわっと貼られる（修正01。大げさに動かさない）
+        'note-in': { from: { opacity: '0', translate: '0 4px' }, to: { opacity: '1', translate: '0 0' } },
       },
       animation: {
         breathe: 'breathe 1.6s ease-in-out infinite',
         'fade-in': 'fade-in .5s ease-out both',
+        'note-in': 'note-in .35s ease-out both',
       },
       minHeight: {
         tap: '44px',

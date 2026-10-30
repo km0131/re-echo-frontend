@@ -93,6 +93,7 @@ functions/       Cloudflare Pages Functions（OGP 差し込み）
 | `VITE_API_BASE_URL` | `https://chosei-api.example.com/api/v1` | 画面から呼ぶ API。CSP の `connect-src` にもビルド時に入る |
 | `NODE_VERSION` | `22` | ビルドに使う Node |
 | `API_ORIGIN` | `https://chosei-api.example.com` | Pages Functions（OGP 差し込み、フェーズ3）が使う |
+| `VITE_TURNSTILE_SITE_KEY` | Turnstile のサイトキー | ボット対策（修正02）。下の「Cloudflare Turnstile」を参照 |
 
 4. カスタムドメイン：プロジェクト → カスタムドメイン → `chosei.example.com` を追加
 5. backend の `.env.prod` の `CHOSEI_ALLOWED_ORIGIN` と `CHOSEI_PUBLIC_BASE_URL` が `https://chosei.example.com` になっていることを確認
@@ -111,6 +112,27 @@ functions/       Cloudflare Pages Functions（OGP 差し込み）
 3. 回答フォームのURLでリロードしても画面が出る（404 にならない）
 4. PC のブラウザの開発者ツールのコンソールに CSP 違反（`Refused to …`）や CORS エラーが出ていない
 5. `curl -sI https://chosei.example.com/e/xxxx | grep -i -E 'content-security|x-robots'` でヘッダーが付いている
+
+## Cloudflare Turnstile（ボット対策）
+
+ログイン・合言葉・回答の新規送信・名前＋PIN での再発行・写真の投稿・コメントの「貼る」で、Turnstile のトークンを `X-Turnstile-Token` ヘッダーで送ります（spec.md 15.2）。ふだんは何も表示されず、怪しいときだけ送信ボタンの上にチェックボックスが出ます。`api.js` は、これらの画面に入ったときだけ読み込みます。
+
+### 本番の設定
+1. Cloudflare ダッシュボード →「Turnstile」→「ウィジェットを追加」。ホスト名に `chosei.example.com` を登録し、ウィジェットモードは「Managed」
+2. 発行された**サイトキー**を、Pages の環境変数 `VITE_TURNSTILE_SITE_KEY`（「本番」と「プレビュー」の両方）に入れて再デプロイする
+3. **シークレットキー**は backend の `.env.prod` の `CHOSEI_TURNSTILE_SECRET_KEY` に入れる（backend の README）
+4. CSP（`public/_headers`）は `https://challenges.cloudflare.com` の script と frame だけを許可済み
+
+### 開発
+`.env.development` と `make preview` は Cloudflare のテスト用サイトキー（常に成功）を使います。backend もテスト用シークレットで動くので、そのまま一通り操作できます。
+
+| 試したいこと | フロント（`VITE_TURNSTILE_SITE_KEY`） | backend（`CHOSEI_TURNSTILE_SECRET_KEY`） |
+| --- | --- | --- |
+| ふつうに通る | `1x00000000000000000000AA` | `1x0000000000000000000000000000000AA` |
+| 必ずチェックボックスを出す | `3x00000000000000000000FF` | 成功用のまま |
+| 確認に失敗する | 成功用のまま | `2x0000000000000000000000000000000AA` |
+
+`VITE_TURNSTILE_SITE_KEY=3x00000000000000000000FF make up` のように、環境変数で上書きできます。
 
 ## 画面の一覧
 

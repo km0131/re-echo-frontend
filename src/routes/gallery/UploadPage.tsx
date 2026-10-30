@@ -6,7 +6,9 @@ import { ApiError, upload } from '../../lib/api'
 import { useGateGuard } from '../../lib/participant'
 import { GALLERY_TILTS, photoKeys, usePhotos } from '../../lib/photos'
 import { storage } from '../../lib/storage'
+import { charCount } from '../../lib/text'
 import { useTitle } from '../../lib/title'
+import { useTurnstileToken } from '../../lib/useTurnstileToken'
 import {
   Button,
   CameraIcon,
@@ -17,7 +19,6 @@ import {
   PageSkeleton,
   PhotoBox,
   Polaroid,
-  TextInput,
   TopBar,
 } from '../../ui'
 
@@ -25,13 +26,15 @@ type Item = {
   key: string
   file: File
   preview: string
-  caption: string
+  title: string
   progress: number // 0〜1
   state: 'ready' | 'sending' | 'done' | 'error'
   error?: string
 }
 
 const MAX_BYTES = 15 * 1024 * 1024
+const MAX_TITLE = 40 // spec.md 14.2
+const titleOver = (it: Item) => charCount(it.title.trim()) > MAX_TITLE
 
 /** 写真投稿（design.md 4章）。1枚ずつ送って、それぞれの進捗を出す。 */
 export default function UploadPage() {
@@ -46,6 +49,8 @@ function Upload({ slug }: { slug: string }) {
   const guard = useGateGuard(slug)
   const photos = usePhotos(slug)
   useTitle('写真を投稿')
+  // 1枚ずつ送るので、1枚ごとに新しいトークンを使う（トークンは1回きり）
+  const ts = useTurnstileToken('upload')
   const inputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<Item[]>([])
   const [busy, setBusy] = useState(false)
@@ -92,7 +97,7 @@ function Upload({ slug }: { slug: string }) {
         key: `${Date.now()}-${i}-${file.name}`,
         file,
         preview: URL.createObjectURL(file),
-        caption: '',
+        title: '',
         progress: 0,
         state: file.size > MAX_BYTES ? ('error' as const) : ('ready' as const),
         error: file.size > MAX_BYTES ? '15MBまでの写真にしてください' : undefined,
@@ -112,9 +117,11 @@ function Upload({ slug }: { slug: string }) {
       patch(it.key, { state: 'sending', progress: 0 })
       const form = new FormData()
       form.append('photo', it.file)
-      form.append('caption', it.caption)
+      // タイトルは meta（photo と同じ順番・同じ数の JSON 配列）で送る。空ならタイトルなし
+      form.append('meta', JSON.stringify([{ title: it.title.trim() || null }]))
       try {
-        await upload(`/events/${slug}/photos`, form, { gate: slug, edit: slug }, (r) =>
+        const turnstile = await ts.nextToken()
+        await upload(`/events/${slug}/photos`, form, { gate: slug, edit: slug, turnstile }, (r) =>
           patch(it.key, { progress: r }),
         )
         patch(it.key, { state: 'done', progress: 1 })
@@ -123,6 +130,8 @@ function Upload({ slug }: { slug: string }) {
         if (guard(e)) return
         patch(it.key, { state: 'error', error: e instanceof ApiError ? e.message : '送れませんでした' })
         if (e instanceof ApiError && ['photo_limit', 'quota_exceeded'].includes(e.code)) break
+      } finally {
+        ts.reset()
       }
     }
     setBusy(false)
@@ -131,6 +140,7 @@ function Upload({ slug }: { slug: string }) {
   }
 
   const ready = items.filter((i) => i.state === 'ready').length
+  const anyOver = items.some((i) => i.state === 'ready' && titleOver(i))
   return (
     <Page className="flex flex-col gap-section pb-10">
       <TopBar backTo={`/e/${slug}/gallery`} />
@@ -165,55 +175,67 @@ function Upload({ slug }: { slug: string }) {
 
       {items.length > 0 && (
         <ul className="grid grid-cols-2 gap-x-4 gap-y-5">
-          {items.map((it, i) => (
-            <li key={it.key} className="flex flex-col gap-2">
-              <div className="relative">
-                <Polaroid tilt={GALLERY_TILTS[i % GALLERY_TILTS.length]} bottom="pb-3">
-                  {/* HEIC は Safari 以外では表示できないので、下地の色だけになる */}
-                  <PhotoBox src={it.preview} alt={it.file.name} index={i} loading="eager" />
-                  {it.state === 'sending' && (
-                    <div className="absolute inset-x-2.5 bottom-3 h-1.5 overflow-hidden rounded-full bg-card/80">
-                      <div
-                        className="h-full bg-yes transition-[width]"
-                        style={{ width: `${Math.round(it.progress * 100)}%` }}
-                      />
-                    </div>
+          {items.map((it, i) => {
+            const left = MAX_TITLE - charCount(it.title.trim())
+            return (
+              <li key={it.key} className="flex flex-col gap-2">
+                <div className="relative">
+                  <Polaroid tilt={GALLERY_TILTS[i % GALLERY_TILTS.length]} bottom="pb-1.5">
+                    {/* HEIC は Safari 以外では表示できないので、下地の色だけになる */}
+                    <PhotoBox src={it.preview} alt={it.file.name} index={i} loading="eager" />
+                    {it.state === 'sending' && (
+                      <div className="absolute inset-x-2.5 bottom-3 h-1.5 overflow-hidden rounded-full bg-card/80">
+                        <div
+                          className="h-full bg-yes transition-[width]"
+                          style={{ width: `${Math.round(it.progress * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                    {/* タイトルはポラロイドの下の余白に書きこむ（白枠の上なので色は固定） */}
+                    <input
+                      aria-label={`${i + 1}枚目のタイトル`}
+                      placeholder="タイトル（なくてもOK）"
+                      value={it.title}
+                      disabled={it.state !== 'ready'}
+                      autoComplete="off"
+                      enterKeyHint="done"
+                      onChange={(e) => patch(it.key, { title: e.target.value })}
+                      className="mt-1 h-tap w-full border-0 border-b border-dashed border-frame-ink/40 bg-transparent px-1 text-input text-frame-ink placeholder:text-frame-ink/70 focus:border-solid focus:border-frame-ink focus:outline-none disabled:opacity-70"
+                    />
+                  </Polaroid>
+                  {it.state !== 'sending' && it.state !== 'done' && (
+                    <button
+                      type="button"
+                      aria-label="この写真をやめる"
+                      onClick={() => {
+                        URL.revokeObjectURL(it.preview)
+                        setItems((s) => s.filter((x) => x.key !== it.key))
+                      }}
+                      className="absolute -right-2 -top-2 inline-flex h-tap w-tap items-center justify-center rounded-full border border-line bg-card text-muted"
+                    >
+                      <DeleteIcon size={18} />
+                    </button>
                   )}
-                </Polaroid>
-                {it.state !== 'sending' && it.state !== 'done' && (
-                  <button
-                    type="button"
-                    aria-label="この写真をやめる"
-                    onClick={() => {
-                      URL.revokeObjectURL(it.preview)
-                      setItems((s) => s.filter((x) => x.key !== it.key))
-                    }}
-                    className="absolute -right-2 -top-2 inline-flex h-tap w-tap items-center justify-center rounded-full border border-line bg-card text-muted"
-                  >
-                    <DeleteIcon size={18} />
-                  </button>
+                </div>
+                {left < 10 && it.state === 'ready' && (
+                  <p className={left < 0 ? 'text-tiny text-maybe-ink' : 'text-tiny text-muted'}>
+                    {left < 0 ? `タイトルが${-left}文字多いです` : `タイトルはあと${left}文字`}
+                  </p>
                 )}
-              </div>
-              <TextInput
-                aria-label={`${i + 1}枚目のキャプション`}
-                placeholder="キャプション（任意）"
-                value={it.caption}
-                maxLength={40}
-                disabled={it.state !== 'ready'}
-                className="h-tap px-3"
-                onChange={(e) => patch(it.key, { caption: e.target.value })}
-              />
-              <p className="text-tiny text-muted" aria-live="polite">
-                {it.state === 'sending' && `送信中… ${Math.round(it.progress * 100)}%`}
-                {it.state === 'done' && '送信しました'}
-                {it.state === 'error' && <span className="text-maybe-ink">{it.error}</span>}
-              </p>
-            </li>
-          ))}
+                <p className="text-tiny text-muted" aria-live="polite">
+                  {it.state === 'sending' && `送信中… ${Math.round(it.progress * 100)}%`}
+                  {it.state === 'done' && '送信しました'}
+                  {it.state === 'error' && <span className="text-maybe-ink">{it.error}</span>}
+                </p>
+              </li>
+            )
+          })}
         </ul>
       )}
 
-      <Button onClick={() => void send()} disabled={busy || ready === 0}>
+      {anyOver && <p className="text-note text-maybe-ink">タイトルは{MAX_TITLE}文字までにしてください</p>}
+      {ts.element}
+      <Button onClick={() => void send()} disabled={busy || ready === 0 || anyOver || !ts.ready}>
         {busy ? '送信しています…' : ready > 0 ? `${ready}枚を投稿する` : '投稿する'}
       </Button>
     </Page>

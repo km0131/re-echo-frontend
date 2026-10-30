@@ -38,7 +38,7 @@ export function Dialog({
         e.preventDefault()
         onClose()
       }}
-      className="m-auto w-[calc(100%-36px)] max-w-[400px] rounded-card border border-line bg-card p-0 text-ink backdrop:bg-scrim/60"
+      className="m-auto max-h-[calc(100dvh-36px)] w-[calc(100%-36px)] max-w-[400px] overflow-y-auto overscroll-contain rounded-card border border-line bg-card p-0 text-ink backdrop:bg-scrim/60"
     >
       <form
         method="dialog"

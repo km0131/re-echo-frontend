@@ -6,6 +6,7 @@ import { api, ApiError } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { participantKeys, useEventDetail, useGateGuard, useMyResponse } from '../../lib/participant'
 import { storage } from '../../lib/storage'
+import { useTurnstileToken } from '../../lib/useTurnstileToken'
 import { useTitle } from '../../lib/title'
 import type { CreateResponseResult, ResponseInput, ResponseItem, SurveyAnswer } from '../../lib/types'
 import {
@@ -67,6 +68,8 @@ function AnswerForm({ slug }: { slug: string }) {
     if (detail.error) guard(detail.error)
   }, [detail.error, guard])
 
+  // 回答の新規作成だけ Turnstile を通す（更新は編集トークンがあるので要らない）
+  const ts = useTurnstileToken('answer', !editing)
   const save = useMutation({
     mutationFn: async (input: ResponseInput) => {
       const edit = storage.getEdit(slug)
@@ -81,7 +84,7 @@ function AnswerForm({ slug }: { slug: string }) {
       const res = await api<CreateResponseResult>(`/events/${slug}/responses`, {
         method: 'POST',
         body: input,
-        auth: { gate: slug },
+        auth: { gate: slug, turnstile: ts.token },
       })
       storage.setEdit(slug, { responseId: res.id, token: res.editToken })
       return res.id
@@ -91,6 +94,7 @@ function AnswerForm({ slug }: { slug: string }) {
       void qc.invalidateQueries({ queryKey: participantKeys.myResponse(slug, id) })
       navigate(`/e/${slug}/answer/done`, { state: { name: input.name } })
     },
+    onSettled: ts.reset,
     onError: (e) => {
       if (guard(e)) return
       if (e instanceof ApiError && e.code === 'name_taken') {
@@ -293,8 +297,9 @@ function AnswerForm({ slug }: { slug: string }) {
         </Field>
 
         {formError && <ErrorNotice message={formError} />}
-        <Button type="submit" disabled={save.isPending}>
-          {save.isPending ? '保存しています…' : 'この内容で保存'}
+        {ts.element}
+        <Button type="submit" disabled={save.isPending || !ts.ready}>
+          {save.isPending ? '保存しています…' : ts.ready ? 'この内容で保存' : '確認中…'}
         </Button>
       </form>
     </Page>

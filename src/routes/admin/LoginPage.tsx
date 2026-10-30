@@ -4,6 +4,7 @@ import { Navigate, useNavigate } from 'react-router'
 import { Page } from '../../components/Page'
 import { api, ApiError } from '../../lib/api'
 import { storage } from '../../lib/storage'
+import { useTurnstileToken } from '../../lib/useTurnstileToken'
 import type { LoginResult } from '../../lib/types'
 import { Button, ErrorNotice, Field, Tag, TextInput } from '../../ui'
 
@@ -19,9 +20,16 @@ export default function LoginPage() {
     document.title = '出欠帳｜幹事ログイン'
   }, [])
 
+  const ts = useTurnstileToken('login')
   const login = useMutation({
     mutationFn: () =>
-      api<LoginResult>('/auth/login', { method: 'POST', body: { loginId: loginId.trim(), password } }),
+      api<LoginResult>('/auth/login', {
+        method: 'POST',
+        body: { loginId: loginId.trim(), password },
+        auth: { turnstile: ts.token },
+      }),
+    // トークンは1回きりなので、結果にかかわらず次のために取り直す
+    onSettled: ts.reset,
     onSuccess: (res) => {
       storage.setSession(res.token)
       qc.clear()
@@ -78,8 +86,9 @@ export default function LoginPage() {
             />
           )}
         </Field>
-        <Button type="submit" disabled={login.isPending} className="mt-2">
-          {login.isPending ? 'ログインしています…' : 'ログイン'}
+        {ts.element}
+        <Button type="submit" disabled={login.isPending || !ts.ready} className="mt-2">
+          {login.isPending ? 'ログインしています…' : ts.ready ? 'ログイン' : '確認中…'}
         </Button>
       </form>
 

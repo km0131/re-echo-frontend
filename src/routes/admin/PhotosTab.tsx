@@ -24,6 +24,7 @@ import {
   SmallButton,
   UploadIcon,
 } from '../../ui'
+import { PhotoDetailDialog } from './PhotoDetailDialog'
 
 type Filter = 'pending' | 'approved' | 'hidden' | 'draft'
 
@@ -57,6 +58,7 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
   const [filter, setFilter] = useState<Filter>('pending')
   const [error, setError] = useState<string | null>(null)
   const [publicTarget, setPublicTarget] = useState<AdminPhoto | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
   const [order, setOrder] = useState<string[] | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
 
@@ -175,7 +177,7 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
             <div className="relative">
               <Polaroid
                 tilt={GALLERY_TILTS[i % GALLERY_TILTS.length]}
-                caption={p.caption || ' '}
+                caption={p.title || ' '}
                 captionClass="text-[13px]"
               >
                 <AdminImage slug={d.slug} photo={p} index={i} />
@@ -197,6 +199,11 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
             <p className="text-tiny text-muted">
               {p.uploaderName} ・ {formatDateTime(p.createdAt)}
             </p>
+            {p.status !== 'processing' && p.status !== 'failed' && (
+              <SmallButton className="px-2 text-tiny" onClick={() => setDetailId(p.id)}>
+                タイトル・コメント{p.commentCount > 0 ? `（${p.commentCount}）` : ''}
+              </SmallButton>
+            )}
 
             {p.status === 'processing' && <p className="text-note text-muted">変換中…</p>}
             {p.status === 'failed' && <p className="text-note text-maybe-ink">変換できませんでした</p>}
@@ -272,6 +279,11 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
         ))}
       </ul>
 
+      <PhotoDetailDialog
+        slug={d.slug}
+        photo={all.find((p) => p.id === detailId) ?? null}
+        onClose={() => setDetailId(null)}
+      />
       <Dialog
         open={!!publicTarget}
         title="誰でも見られるようにしますか？"

@@ -2,6 +2,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { API_BASE } from './api'
+import { commentKeys } from './comments'
 import { participantKeys } from './participant'
 import { photoKeys } from './photos'
 import { storage } from './storage'
@@ -28,14 +29,20 @@ export function useEventStream(slug: string, enabled = true) {
       if (!gate) return
       es = new EventSource(`${API_BASE}/events/${slug}/stream?gate=${encodeURIComponent(gate)}`)
       es.addEventListener('changed', (e) => {
-        let kind = ''
+        let msg: { kind?: string; photoId?: string } = {}
         try {
-          kind = (JSON.parse((e as MessageEvent).data) as { kind?: string }).kind ?? ''
+          msg = JSON.parse((e as MessageEvent).data) as typeof msg
         } catch {
           // 中身が読めなくても取り直す
         }
-        if (kind === 'photos') void qc.invalidateQueries({ queryKey: photoKeys.list(slug) })
-        else void qc.invalidateQueries({ queryKey: participantKeys.detail(slug) })
+        if (msg.kind === 'photos') void qc.invalidateQueries({ queryKey: photoKeys.list(slug) })
+        else if (msg.kind === 'photo_comment') {
+          // コメント数（ギャラリーの付箋マーク）と、その写真のコメント一覧
+          void qc.invalidateQueries({ queryKey: photoKeys.list(slug) })
+          void qc.invalidateQueries({
+            queryKey: msg.photoId ? commentKeys.list(slug, msg.photoId) : commentKeys.all(slug),
+          })
+        } else void qc.invalidateQueries({ queryKey: participantKeys.detail(slug) })
       })
       es.onerror = () => {
         // 通常の切断は EventSource が自分でつなぎ直す。閉じてしまった（401 など）ときだけ、こちらでやり直す

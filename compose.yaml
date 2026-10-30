@@ -22,6 +22,8 @@ services:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
       VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://host.docker.internal:8080}
       VITE_USE_POLLING: ${VITE_USE_POLLING:-false}
+      # Turnstile のテスト用サイトキー（.env.development と同じ。3x… などに上書きして試せる）
+      VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort"
 
   # 本番と同じビルド＋Pages Functions（docker compose --profile preview up preview）
@@ -33,6 +35,8 @@ services:
     environment:
       # 本番と同じ「別オリジン」の状態（direct モード）でビルドする
       VITE_API_BASE_URL: ${PREVIEW_API_BASE_URL:-http://localhost:8080/api/v1}
+      # 本番ビルドでも Turnstile のテスト用サイトキー（常に成功）で動かす
+      VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}
       VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://host.docker.internal:8080}
     command: >
       sh -c "npm install && npm run build -- --outDir /tmp/preview-dist &&
