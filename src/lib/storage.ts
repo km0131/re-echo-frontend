@@ -8,7 +8,11 @@ const keys = {
   gate: (slug: string) => `chosei:gate:${slug}`,
   edit: (slug: string) => `chosei:edit:${slug}`,
   admin: (slug: string) => `chosei:admin:${slug}`,
+  comments: (slug: string) => `chosei:comments:${slug}`,
 }
+
+/** 写真のコメントの削除トークン（commentId → token）。修正01：spec.md 14.4 */
+export type CommentTokens = Record<string, string>
 
 function read(key: string): string | null {
   try {
@@ -51,4 +55,22 @@ export const storage = {
 
   getAdmin: (slug: string) => read(keys.admin(slug)),
   setAdmin: (slug: string, key: string | null) => write(keys.admin(slug), key),
+
+  getCommentTokens: (slug: string): CommentTokens => {
+    const raw = read(keys.comments(slug))
+    if (!raw) return {}
+    try {
+      const v = JSON.parse(raw) as unknown
+      if (!v || typeof v !== 'object') return {}
+      return Object.fromEntries(Object.entries(v).filter(([, t]) => typeof t === 'string')) as CommentTokens
+    } catch {
+      return {}
+    }
+  },
+  addCommentToken: (slug: string, commentId: string, token: string) =>
+    write(keys.comments(slug), JSON.stringify({ ...storage.getCommentTokens(slug), [commentId]: token })),
+  removeCommentToken: (slug: string, commentId: string) => {
+    const rest = Object.entries(storage.getCommentTokens(slug)).filter(([id]) => id !== commentId)
+    write(keys.comments(slug), JSON.stringify(Object.fromEntries(rest)))
+  },
 }

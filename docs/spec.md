@@ -444,7 +444,8 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 { …, "pendingPhotoCount": 3, "photoCount": 142, "deletionSuggested": false }   // 終了日から1年たったら true
 
 // POST /events/{slug}/photos（multipart/form-data）。G＋E（回答済みの参加者）または A
-//   photo: ファイル（複数可、1回10枚まで）／ caption: photo と同じ順番（任意、40文字）
+//   photo: ファイル（複数可、1回10枚まで）／ caption: photo と同じ順番（任意、200文字。修正01 で 40→200）
+//   meta: [{ title, caption }]（修正01。14.4・14.6）
 //   visibility: public | members | draft（幹事のみ。参加者は常に members）
 ← 201 { "photos": [ { "id", "status": "processing", "caption" } ] }
 // 403 answer_required（未回答）/ 415 unsupported_type（JPEG・PNG・HEIC・WebP 以外。中身で判定）
@@ -462,7 +463,7 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 ← { "photos": [ { …上と同じ, "byParticipant": true, "sortOrder": 0, "bytes": 123456,
                   "hideRequests": [ { "reason", "createdAt", "resolvedAt": null } ] } ] }
 
-// PATCH /events/{slug}/photos/{id}（A）
+// PATCH /events/{slug}/photos/{id}（A。修正01 から title・caption は投稿者本人の E でも可。14.6）
 → { "status"?: "approved" | "rejected" | "hidden" | "pending", "visibility"?: "public" | "members" | "draft",
     "sortOrder"?: 3, "caption"?: "…" }
 ← 写真1件（参加者向けの形）
@@ -479,7 +480,8 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 // 中身は WebP（thumb は長い辺400px、large は1600px）。EXIF・GPS はすべて削除済み
 
 // GET /events/{slug}/stream?gate=<通過トークン>（SSE）
-// event: changed / data: {"kind":"responses"|"confirm"|"photos"}   … 何が変わったかだけ。中身は取り直す
+// event: changed / data: {"kind":"responses"|"confirm"|"photos"|"photo_comment"}   … 何が変わったかだけ。中身は取り直す
+//   photo_comment のときだけ photoId と commentCount も付く（修正01。14.6）
 // event: bye … サーバーの停止。EventSource は retry: 3000 で自動的につなぎ直す
 // 30秒ごとに ": ping" のコメント行
 ```
@@ -504,7 +506,9 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 | 日程の確定・取り消し | `POST・DELETE /events/{slug}/confirm` | 200 | 200 | 401 | 401 |
 | 共有テキスト | `GET /events/{slug}/share-text` | 200 | 200 | 401 | 401 |
 | 写真の管理一覧 | `GET /events/{slug}/admin/photos` | 200 | 200 | 401 | 401 |
-| 写真の承認など | `PATCH /events/{slug}/photos/{id}` | 200 | 200 | 401 | 401 |
+| 写真の承認など（状態・公開範囲・並び順） | `PATCH /events/{slug}/photos/{id}` | 200 | 200 | 403 | 401 |
+| 写真のタイトル・キャプション変更（投稿者本人の写真） | `PATCH /events/{slug}/photos/{id}` | 200 | 200 | 200 | 401 |
+| コメントの非表示・戻す | `PATCH /events/{slug}/photos/{id}/comments/{commentId}` | 204 | 204 | 401 | 401 |
 | 管理URLの再発行 | `POST /events/{slug}/admin-key/rotate` | 200 | 403 | 401 | 401 |
 | イベント削除 | `DELETE /events/{slug}` | 204 | 403 | 401 | 401 |
 | 公開情報 | `GET /public/events/{slug}` | 200 | 200 | 200 | 200 |
@@ -517,8 +521,290 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 | 写真の非表示依頼 | `POST /events/{slug}/photos/{id}/hide-request` | 401 | 401 | 204 | 401 |
 | 写真の投稿 | `POST /events/{slug}/photos` | 201 | 201 | 201 | 401 |
 | 写真の削除（投稿者本人の写真） | `DELETE /events/{slug}/photos/{id}` | 204 | 204 | 204 | 401 |
+| コメントの一覧 | `GET /events/{slug}/photos/{id}/comments` | 200 | 200 | 200 | 401 |
+| コメントの投稿 | `POST /events/{slug}/photos/{id}/comments` | 401 | 401 | 201 | 401 |
+| コメントの削除（書いた本人のトークン） | `DELETE /events/{slug}/photos/{id}/comments/{commentId}` | 204 | 204 | 204 | 403 |
 | 更新の通知（SSE） | `GET /events/{slug}/stream?gate=` | 401 | 401 | 200 | 401 |
 
 - 幹事も参加者の画面を見るときは合言葉を通る（幹事の資格だけでは参加者APIは使えない）。
 - 回数制限：ログインは ID ごとに5回失敗で15分（429 `too_many_attempts`）、合言葉は IP ごとに10回失敗で10分（429）、PIN は回答ごとに5回失敗で15分（429 `pin_locked`）。
-- 他人の編集トークンでの回答の操作は 403 `edit_forbidden`、他人の写真の削除は 403 `photo_forbidden`、別の幹事のイベントは 403 `forbidden`。
+- 他人の編集トークンでの回答の操作は 403 `edit_forbidden`、他人の写真の削除・変更は 403 `photo_forbidden`、別の幹事のイベントは 403 `forbidden`。
+- 修正01：コメントの削除は「書いた本人の `X-Comment-Token`」か幹事。どちらもなければ 403 `comment_forbidden`。参加者の表では、参加者が自分で書いたコメントのトークンを持っている状態。
+
+
+## 14. 修正01（合言葉・写真タイトル・写真コメント）
+
+> spec-fix01.md の内容。既存の 11〜13 章と番号が重なるため 11 章を 14 章に付け替えた（手順書の「11.x」はこの章の「14.x」）。
+
+
+---
+
+### 14.1 合言葉
+
+#### 何が変わるか
+| 項目 | 変更前 | 変更後 |
+| --- | --- | --- |
+| 使える文字 | 実質、英数字のみ | 日本語（ひらがな・カタカナ・漢字）、記号、絵文字も可 |
+| 長さ | （未定義） | 正規化後に 1〜50 文字（バイト数ではなく文字数で数える） |
+| 質問 | なし | 任意で1つ設定できる（例：「担任の先生の名前は？」） |
+| 答えの数 | 1つ | 1〜5個（表記ゆれを別解として登録できる） |
+
+#### 正規化（判定の前に、入力と登録値の両方に同じ処理をかける）
+1. Unicode NFKC（全角英数→半角、半角カナ→全角カナ など）
+2. 空白をすべて除去（半角・全角スペース、タブ、改行）
+3. 英字を小文字に
+4. カタカナをひらがなに（ァ〜ヶ → ぁ〜ゖ。長音「ー」はそのまま）
+
+例：`タナカ　先生` → `たなか先生`、`ＤＥＭＯ` → `demo`
+
+漢字とかなの読みの違い（「田中」と「たなか」）は正規化では吸収しない。必要なら幹事が別解として登録する。
+
+#### 画面での扱い
+- 合言葉の入力欄は `type="text"`（`type="password"` は日本語入力を使えないブラウザがあるため使わない）。
+- 合言葉はクラス全員で共有するものなので、パスワードほど隠す必要はない。
+
+### 14.2 写真のタイトル
+- 投稿時に1枚ごとに任意で設定できる。最大 40 文字。
+- 後から編集できるのは、投稿した本人（E）と幹事（A）。
+- `caption`（説明文、最大 200 文字）は従来どおり残す。
+
+### 14.3 写真のコメント
+- 合言葉を通過した人なら誰でも書ける（回答していなくてもよい）。
+- 名前は任意（最大 20 文字）。空なら画面では「だれか」と表示する。
+  - 回答済みの端末では、名前欄に自分の回答名を初期値として入れる（消して匿名にもできる）。
+- 本文は 1〜200 文字。改行は可（連続する改行は2つまでに詰める）。
+- コメントできるのは、その人が見られる写真（承認済みの members / public）だけ。
+- 削除できるのは、書いた本人（コメント削除トークン）と幹事。
+- 幹事は管理画面でコメントを非表示にできる。
+- 連投対策：IP ごとに 1 分あたり 10 件まで。
+- 写真を削除すると、その写真のコメントも消える。
+
+---
+
+### 14.4 API の変更
+
+#### 変更
+| メソッド | パス | 認証 | 変更内容 |
+| --- | --- | --- | --- |
+| GET | `/public/events/{slug}` | － | `passphraseQuestion`（string か null）を追加 |
+| POST | `/events` | S | `passphraseQuestion`（任意）、`passphrases`（1〜5個の配列）を受け取る。従来の `passphrase`（文字列1つ）も当面は受け付ける |
+| GET・PATCH | `/events/{slug}/admin` | A | `passphraseQuestion` の取得・変更（質問だけの変更では通過トークンは失効しない）。`passphraseCount`（登録されている答えの数）を返す。答えそのものは返さない |
+| PUT | `/events/{slug}/passphrase` | A | 本文を `{ "passphrases": ["田中先生", "たなかせんせい"] }` に変更（1〜5個）。全件置き換え。`passphrase_version` を +1 して通過トークンを全失効 |
+| POST | `/events/{slug}/gate` | － | 本文は従来どおり `{ "passphrase": "..." }`。正規化してから、登録された全ての答えと照合 |
+| POST | `/events/{slug}/photos` | G＋E、または A | multipart に `meta` を追加（後述） |
+| GET | `/events/{slug}/photos` | G | 各写真に `title`（string か null）と `commentCount` を追加 |
+| PATCH | `/events/{slug}/photos/{id}` | A、または投稿者の E | `title` と `caption` は投稿者本人も変更できる。承認・公開範囲・並び順は従来どおり A のみ |
+
+`POST /events/{slug}/photos` の `meta`：
+```json
+// multipart の "meta" フィールド（JSON文字列）。files と同じ順番、同じ数
+[ { "title": "修学旅行の朝", "caption": "" }, { "title": null } ]
+```
+`meta` が無い場合は、全てタイトルなしとして扱う。
+
+#### 追加
+| メソッド | パス | 認証 | 内容 |
+| --- | --- | --- | --- |
+| GET | `/events/{slug}/photos/{id}/comments` | G（幹事は A でも可） | コメント一覧（古い順） |
+| POST | `/events/{slug}/photos/{id}/comments` | G | コメント投稿。`X-Edit-Token` があれば回答と紐づける |
+| DELETE | `/events/{slug}/photos/{id}/comments/{commentId}` | `X-Comment-Token`、または A | コメント削除 |
+| PATCH | `/events/{slug}/photos/{id}/comments/{commentId}` | A | `{ "status": "hidden" \| "visible" }` |
+
+コメント投稿：
+```json
+// リクエスト
+{ "authorName": "たなか", "body": "この日めっちゃ寒かったよね" }   // authorName は省略・null 可
+
+// レスポンス 201
+{
+  "comment": { "id": "01J…", "authorName": "たなか", "body": "この日めっちゃ寒かったよね",
+               "createdAt": "2026-10-29T01:23:45Z", "mine": true },
+  "deleteToken": "…"   // この1回だけ返す
+}
+```
+
+コメント一覧：
+```json
+{ "comments": [ { "id": "01J…", "authorName": null, "body": "なつかしい", "createdAt": "…", "mine": false } ] }
+```
+- `mine` は、リクエストの `X-Comment-Tokens`（カンマ区切り、最大50個）に一致するトークンがあれば true。
+- 参加者には `status = hidden` のコメントを返さない。幹事（A）には `status` 付きで全件返す。
+
+エラーコード（追加）：
+| code | HTTP | message |
+| --- | --- | --- |
+| `passphrase_invalid_format` | 400 | 合言葉は1〜50文字で入力してください |
+| `passphrase_too_many` | 400 | 合言葉の答えは5つまでです |
+| `passphrase_duplicate` | 400 | 同じ答えが重なっています |
+| `photo_title_too_long` | 400 | タイトルは40文字までです |
+| `comment_invalid` | 400 | コメントは1〜200文字で入力してください |
+| `comment_name_too_long` | 400 | 名前は20文字までです |
+| `comment_rate_limited` | 429 | 少し時間をおいてから書きこんでください |
+| `comment_forbidden` | 403 | このコメントは消せません |
+
+#### LocalStorage（フロント）
+- `chosei:comments:{slug}` … `{ [commentId]: deleteToken }`
+
+### 14.5 テーブル
+マイグレーション `0004_fix01.sql` を参照。
+- `events.passphrase_question` を追加、`events.passphrase_hash` を削除
+- `event_passphrases`（答え。1イベント1〜5行）を追加
+- `photos.title` を追加
+- `photo_comments` を追加
+
+
+### 14.6 実装に合わせた補足（修正01）
+
+spec-fix01.md に書かれていないことで、実装で決めたことです。
+
+#### 合言葉
+- 正規化後に同じになる答えのほか、答えが0個（空の配列・空文字）は 400 `passphrase_required`「合言葉を入れてください」。
+- 質問は前後の空白を除き、空なら `null`（質問なし）。100文字まで（400 `passphrase_question_too_long`「質問は100文字以内にしてください」）。
+- `PUT /events/{slug}/passphrase` は旧い形の `{ "passphrase": "…" }` も当面は受け付ける（配列1件として扱う）。
+- 旧ハッシュ（`norm_version = 0`）は、0004 より前の登録時と同じく前後の空白だけ除いた入力で照合する。一致したらその場で正規化した値で作り直し、`norm_version = 1` にする。
+- 旧エラー `passphrase_too_long`（64文字）は使わなくなった。代わりに `passphrase_invalid_format`（正規化後に1〜50文字）。
+- 合言葉ゲートは、登録された答えをすべて照合してから結果を返す（何番目の答えで一致したかで応答時間を変えないため）。
+
+#### 写真のタイトル
+- `POST /events/{slug}/photos` の `meta` が JSON として読めない、または数が `photo` と合わないときは 400 `photo_meta_invalid`。
+- `meta` の各要素の `caption` を省くと、従来の `caption` フィールド（同じ順番）を使う。
+- 投稿の結果にも `title` を返す：`201 { "photos": [ { "id", "status", "title", "caption" } ] }`。
+- `caption`（説明文）は最大200文字に広げた（前は40文字）。従来どおり、超えた分は切り詰める（エラーにはしない）。
+- `PATCH /events/{slug}/photos/{id}`：
+  - `{ "title": null }` か空文字でタイトルを消す。
+  - 投稿者本人は `X-Edit-Token` だけで変えられる（合言葉の通過トークンは要らない）。
+  - 本人が `status`・`visibility`・`sortOrder` を送ると 403 `photo_forbidden`。他人の写真も 403 `photo_forbidden`。
+  - レスポンスは写真1件で、本人なら `mine: true`。
+- 管理用の一覧（`GET /events/{slug}/admin/photos`）にも `title` と `commentCount` が入る。
+
+#### 写真のコメント
+- 投稿は 201、削除は 204、非表示・戻す（PATCH）は 204。
+- 見つからないコメントは 404 `comment_not_found`。PATCH の `status` がちがうと 400 `status_invalid`。
+- コメント削除は `X-Comment-Token` か A だけで、合言葉の通過トークンは要らない。
+- 幹事向けの一覧（A）だけ、各コメントに `"status": "visible" | "hidden"` が付く。参加者向けには付かない。
+- SSE：コメントが増減・非表示になると `event: changed` / `data: {"kind":"photo_comment","photoId":"…","commentCount":3}`（`commentCount` は表示中の数）。
+- 連投の上限（IP ごとに1分10件）は、受け付けた投稿の数で数える。
+
+## 15. 修正02（データの置き場所・永続化／Cloudflare Turnstile）
+
+> spec-fix02.md の内容。既存の 11〜13 章と番号が重なるため 12 章を 15 章に付け替えた（手順書の「12.x」はこの章の「15.x」）。
+
+
+---
+
+### 15.1 データの置き場所（Docker の外に出す）
+
+DB と写真は、名前付きボリュームではなく**ホストのディレクトリをそのままマウント（bind mount）**する。
+フォルダごとコピーすれば別のマシンへ移せるようにするため。
+
+#### ディレクトリ構成（ホスト側）
+```
+<DATA_ROOT>/
+├── db/
+│   ├── chosei.db          # SQLite 本体
+│   ├── chosei.db-wal      # WAL（本体と同じディレクトリに必ず置く）
+│   └── chosei.db-shm
+├── photos/
+│   ├── originals/{eventId}/{photoId}     # 原本（拡張子なし。形式は中身で判定）
+│   └── media/{eventId}/{photoId}_400.webp
+│                       {photoId}_1600.webp
+└── og/{eventId}.png                      # OGP画像
+<BACKUP_ROOT>/                             # バックアップは DATA_ROOT の外に置く
+├── db/chosei-YYYYMMDD.db                 # 7世代
+└── photos/                               # 週1回の rsync 先
+```
+
+| 環境 | DATA_ROOT | BACKUP_ROOT |
+| --- | --- | --- |
+| 開発（compose.yaml） | リポジトリ直下の `./data`（.gitignore 済み） | `./backups` |
+| 本番（compose.prod.yaml） | `/srv/chosei/data` | `/srv/chosei/backups` |
+
+- コンテナ内では常に `/data` にマウントする。アプリは環境変数 `CHOSEI_DATA_DIR=/data` だけを見て、その下のパスを組み立てる。
+- SQLite はファイル単体ではなく **`db/` ディレクトリごと**マウントする（ファイル単体のマウントだと WAL・SHM がコンテナ内に作られて消える）。
+- コンテナは非rootで動かす。ホストのディレクトリの持ち主とコンテナの UID/GID を `CHOSEI_UID` / `CHOSEI_GID`（既定 10001）でそろえる。
+- 写真ファイルはアプリ以外（rsync、エクスプローラー）から見ても、どのイベントのものか分かるよう `{eventId}` ごとのフォルダに分ける。
+
+#### 移行手順（README に書く）
+1. `make down`（本番は `make prod-down`）
+2. `rsync -aH --info=progress2 /srv/chosei/data/ 新しいマシン:/srv/chosei/data/`
+3. 新しいマシンで `chown -R 10001:10001 /srv/chosei/data`（UID を変えた場合はその値）
+4. `make deploy`
+
+---
+
+#### 実装に合わせた補足（15.1）
+- 起動時に `db/`・`photos/originals`・`photos/media`・`og/` を作り、書き込めるかを確かめる。書き込めなければ「/data/db に書き込めません。ホストの持ち主を CHOSEI_UID:CHOSEI_GID（このコンテナは 10001:10001）に合わせてください」と出して止まる。
+- 修正02 より前の置き場所（`/data/chosei.db`）に DB があり、新しい置き場所に無いときは、空の DB を作らずに止まる（`make migrate-volume` を促す）。
+- OGP 画像のファイル名は slug から イベントID に変えた（`og/{eventId}.png`）。URL は従来どおり `/og/{slug}.png`。
+- DB のバックアップ名は `chosei-YYYYMMDD.db`（gzip しない）。同じ日に2回取ると新しいほうで上書きする。
+- 開発用コンテナはホストのユーザー（`DEV_UID`・`DEV_GID`、`make` が自分の値を渡す）で動く。`./data` の写真をホストからそのまま開けるようにするため。
+
+### 15.2 Cloudflare Turnstile（ボット対策）
+
+#### 対象
+| 操作 | API | action 名 |
+| --- | --- | --- |
+| 幹事ログイン | POST `/auth/login` | `login` |
+| 合言葉の入力 | POST `/events/{slug}/gate` | `gate` |
+| 回答の新規作成 | POST `/events/{slug}/responses` | `answer` |
+| 名前＋PINで編集トークン再発行 | POST `/events/{slug}/responses/recover` | `recover` |
+| 写真の投稿 | POST `/events/{slug}/photos` | `upload` |
+| 写真へのコメント | POST `/events/{slug}/photos/{id}/comments` | `comment` |
+
+- 幹事権限（A）のリクエストと、回答の更新（PUT。編集トークン必須）には要求しない。
+- 既存のレート制限はそのまま残す（Turnstile と二重に守る）。
+
+#### 送り方
+- フロントはウィジェットで得たトークンを **`X-Turnstile-Token` ヘッダー**で送る（multipart の写真投稿もヘッダーで送る）。
+- トークンは1回しか使えず、発行から5分で切れる。送信が終わったら成功・失敗にかかわらずウィジェットをリセットする。
+
+#### サーバー側の検証
+- `https://challenges.cloudflare.com/turnstile/v0/siteverify` に `secret`、`response`、`remoteip`（`CF-Connecting-IP`）を POST する。タイムアウト 5 秒。
+- `success` が true で、`action` が上の表の値と一致し、`hostname` が許可したホスト（`CHOSEI_TURNSTILE_HOSTNAMES`）に含まれるときだけ通す。
+- 検証に失敗したリクエストは、レート制限の失敗回数にも数える。
+
+#### エラー
+| code | HTTP | message |
+| --- | --- | --- |
+| `turnstile_required` | 400 | ページを読みこみ直してから、もう一度お試しください |
+| `turnstile_failed` | 403 | 確認がうまくいきませんでした。もう一度お試しください |
+| `turnstile_unavailable` | 503 | 確認サービスにつながりません。少し時間をおいてお試しください |
+
+#### 環境変数
+```dotenv
+# backend
+CHOSEI_TURNSTILE_SECRET_KEY=          # 本番は Cloudflare ダッシュボードで発行したもの
+CHOSEI_TURNSTILE_HOSTNAMES=chosei.ドメイン,localhost
+
+# frontend
+VITE_TURNSTILE_SITE_KEY=
+```
+
+開発では Cloudflare のテスト用キーを使う（どのドメインでも、localhost でも動く）。
+| 用途 | サイトキー（frontend） | シークレットキー（backend） |
+| --- | --- | --- |
+| 常に成功 | `1x00000000000000000000AA` | `1x0000000000000000000000000000000AA` |
+| 常に失敗 | `2x00000000000000000000AB` | `2x0000000000000000000000000000000AA` |
+| 必ずチェックボックスを出す | `3x00000000000000000000FF` | （成功用と組み合わせる） |
+
+- 本番で `CHOSEI_TURNSTILE_SECRET_KEY` が空、またはテスト用キーのままなら、API は起動しない。
+- テスト用キーを使うと siteverify の応答の `hostname` は `example.com` になるため、開発では hostname チェックを `CHOSEI_ENV=dev` のときだけ緩める。
+
+#### CSP・CORS
+- フロントの CSP に `script-src https://challenges.cloudflare.com` と `frame-src https://challenges.cloudflare.com` を追加する（外部スクリプト禁止の唯一の例外）。
+- API の CORS 許可ヘッダーに `X-Turnstile-Token` を追加する。
+
+#### 見せ方
+- ウィジェットは `appearance: "interaction-only"`（ふだんは何も出ず、怪しいときだけチェックボックスが出る）。
+- 出たときは、送信ボタンのすぐ上に置く。テーマは `light`／`dark` をサイトのテーマに合わせる。
+
+#### 実装に合わせた補足（15.2）
+- テスト用キーの siteverify の応答は `hostname` が `example.com`、`action` が空。そのため開発（`CHOSEI_ENV=dev`）では hostname を確かめず、action は応答に入っているときだけ確かめる。本番は success・action・hostname をすべて確かめる。
+- 開発でシークレットを空にすると Turnstile を確かめない（起動時に警告を出す）。本番では空なら起動しない。
+- レート制限への数え方：
+  - 合言葉は IP ごと、ログインは ID ごと（本文の `loginId`）、コメントは IP ごとの回数に、Turnstile の失敗（403）も数える。
+  - 回答の新規作成・PIN での再発行・写真の投稿には IP ごとの制限が無いので、数えない。
+- 幹事（A）として認証できる写真投稿だけ、Turnstile を確かめない。
+- PIN での再発行（`recover`）は回答者の PIN の失敗回数とは別。Turnstile の失敗では PIN のロックは進まない。
+- ログには結果・action・error-codes・hostname だけを出し、トークンは出さない。
+

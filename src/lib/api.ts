@@ -30,7 +30,16 @@ export type AuthSpec = {
   edit?: string
   /** 共同幹事の管理キー → X-Admin-Key（イベントの slug） */
   admin?: string
+  /** この端末で書いたコメントの削除トークンすべて → X-Comment-Tokens（イベントの slug。mine の判定用） */
+  commentTokens?: string
+  /** コメント1件の削除トークン → X-Comment-Token（トークンそのもの） */
+  commentToken?: string
+  /** Cloudflare Turnstile のトークン → X-Turnstile-Token（1回きり。spec.md 15.2） */
+  turnstile?: string | null
 }
+
+/** X-Comment-Tokens で送れるトークンの数（spec.md 14.4） */
+const MAX_COMMENT_TOKENS = 50
 
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -75,6 +84,13 @@ function buildHeaders(auth: AuthSpec | undefined, hasBody: boolean): Headers {
     const k = storage.getAdmin(auth.admin)
     if (k) h.set('X-Admin-Key', k)
   }
+  if (auth?.commentTokens) {
+    // 新しく書いたものほど後ろに入っているので、後ろから50個
+    const ts = Object.values(storage.getCommentTokens(auth.commentTokens)).slice(-MAX_COMMENT_TOKENS)
+    if (ts.length > 0) h.set('X-Comment-Tokens', ts.join(','))
+  }
+  if (auth?.commentToken) h.set('X-Comment-Token', auth.commentToken)
+  if (auth?.turnstile) h.set('X-Turnstile-Token', auth.turnstile)
   return h
 }
 

@@ -29,4 +29,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+# Turnstile のテスト用サイトキーなど、公開してよい開発用の値だけ
+!.env.development
 *:Zone.Identifier

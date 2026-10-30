@@ -5,6 +5,7 @@ import { ApiError, memberMediaUrl } from '../../lib/api'
 import { useEventDetail, useGateGuard } from '../../lib/participant'
 import { GALLERY_TILTS, usePhotos } from '../../lib/photos'
 import { storage } from '../../lib/storage'
+import { useEventStream } from '../../lib/stream'
 import { useTitle } from '../../lib/title'
 import type { PhotoItem } from '../../lib/types'
 import {
@@ -37,6 +38,8 @@ function Gallery({ slug }: { slug: string }) {
   const detail = useEventDetail(slug)
   useTitle(detail.data ? `あの頃のアルバム（${detail.data.title}）` : undefined)
   const photos = usePhotos(slug)
+  // コメントや写真が増えたら自動で取り直す（SSE）
+  useEventStream(slug, !photos.error)
   const [filter, setFilter] = useState<Filter>('all')
   const [open, setOpen] = useState<number | null>(null)
 
@@ -188,20 +191,34 @@ function GalleryItem({
       </Polaroid>
     )
   }
+  // タイトルはポラロイドの下の余白に手書き風で。無ければ余白のまま（「無題」とは出さない）
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="block w-full text-left"
-      aria-label={`${p.caption || '写真'}を拡大`}
+      className="relative block w-full text-left"
+      aria-label={`${p.title || '写真'}を拡大${p.commentCount > 0 ? `（コメント${p.commentCount}件）` : ''}`}
     >
-      <Polaroid tilt={tilt} caption={p.caption || ' '} captionClass="text-[14px]">
+      <Polaroid tilt={tilt} caption={p.title || ' '} captionClass="text-[15px]">
         <PhotoBox
           src={p.thumbUrl ? memberMediaUrl(p.thumbUrl, slug) : null}
-          alt={p.caption}
+          alt={p.title || p.caption}
           index={p.id.charCodeAt(25)}
         />
+        {p.commentCount > 0 && <CommentBadge count={p.commentCount} />}
       </Polaroid>
     </button>
+  )
+}
+
+/** コメント数の付箋マーク。ポラロイドの右下に小さく貼る */
+function CommentBadge({ count }: { count: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute -bottom-2 -right-2 inline-flex h-7 min-w-7 rotate-[4deg] items-center justify-center rounded-[2px] bg-highlight px-1.5 text-tiny font-bold tabular-nums text-sepia-ink shadow-note"
+    >
+      {count}
+    </span>
   )
 }

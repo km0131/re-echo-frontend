@@ -2,12 +2,21 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router'
 import { CopyButton } from '../../components/CopyButton'
+import { AnswersEditor, QuestionField } from '../../components/PassphraseFields'
 import { Page, PageTitle } from '../../components/Page'
 import { adminKeys, useSessionGuard } from '../../lib/admin'
 import { api } from '../../lib/api'
 import { fromTokyoInputs } from '../../lib/date'
+import {
+  answersToSend,
+  checkAnswers,
+  MAX_QUESTION_LEN,
+  newAnswer,
+  type AnswerRow,
+} from '../../lib/passphrase'
 import { storage } from '../../lib/storage'
 import { SURVEY_TEMPLATES } from '../../lib/surveyTemplates'
+import { charCount } from '../../lib/text'
 import type { CreateEventInput, CreateEventResult } from '../../lib/types'
 import {
   Button,
@@ -44,7 +53,8 @@ function NewEventForm({ onCreated }: { onCreated: (r: CreateEventResult) => void
   const [gateCaption, setGateCaption] = useState('あの頃の放課後')
   const [classSize, setClassSize] = useState('')
   const [drafts, setDrafts] = useState<Draft[]>([{ key: 0, date: '', time: '19:00' }])
-  const [passphrase, setPassphrase] = useState('')
+  const [question, setQuestion] = useState('')
+  const [answers, setAnswers] = useState<AnswerRow[]>(() => [newAnswer()])
   const [endsOn, setEndsOn] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [templates, setTemplates] = useState<string[]>([])
@@ -96,7 +106,10 @@ function NewEventForm({ onCreated }: { onCreated: (r: CreateEventResult) => void
       candidates.push({ startsAt: iso })
     }
     if (candidates.length === 0) return setError('候補日を1つ以上入れてください')
-    if (!passphrase.trim()) return setError('合言葉を入れてください')
+    const answerError = checkAnswers(answers)
+    if (answerError) return setError(answerError)
+    if (charCount(question.trim()) > MAX_QUESTION_LEN)
+      return setError(`質問は${MAX_QUESTION_LEN}文字以内にしてください`)
     if (!endsOn) return setError('終了日を入れてください')
     const size = classSize.trim() === '' ? null : Number(classSize)
     if (size !== null && (!Number.isInteger(size) || size < 1))
@@ -106,7 +119,8 @@ function NewEventForm({ onCreated }: { onCreated: (r: CreateEventResult) => void
       description: description.trim(),
       gateCaption: gateCaption.trim(),
       classSize: size,
-      passphrase: passphrase.trim(),
+      passphraseQuestion: question.trim() || null,
+      passphrases: answersToSend(answers),
       endsOn,
       candidates,
     })
@@ -214,18 +228,11 @@ function NewEventForm({ onCreated }: { onCreated: (r: CreateEventResult) => void
 
         <Card>
           <CardTitle>合言葉</CardTitle>
-          <Field label="合言葉" hint="クラスのみんなだけが分かる言葉に。LINE では URL と別に伝えます">
-            {(id, d) => (
-              <TextInput
-                id={id}
-                aria-describedby={d}
-                value={passphrase}
-                maxLength={64}
-                autoComplete="off"
-                onChange={(e) => setPassphrase(e.target.value)}
-              />
-            )}
-          </Field>
+          <p className="text-note text-muted">
+            クラスのみんなだけが分かる言葉に。LINE では URL と別に伝えます
+          </p>
+          <QuestionField value={question} onChange={setQuestion} />
+          <AnswersEditor answers={answers} onChange={setAnswers} />
           <Field label="終了日" hint="この日を過ぎると「終了」になります。合言葉はこの30日後まで有効です">
             {(id, d) => (
               <TextInput

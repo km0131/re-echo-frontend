@@ -5,6 +5,7 @@ import { Page, PageTitle } from '../../components/Page'
 import { api, ApiError } from '../../lib/api'
 import { participantKeys, useEventDetail, useGateGuard } from '../../lib/participant'
 import { storage } from '../../lib/storage'
+import { useTurnstileToken } from '../../lib/useTurnstileToken'
 import { useTitle } from '../../lib/title'
 import type { CreateResponseResult } from '../../lib/types'
 import { Button, EmptyState, ErrorNotice, Field, PageSkeleton, PinInput, TopBar } from '../../ui'
@@ -30,13 +31,15 @@ function EditForm({ slug }: { slug: string }) {
     if (detail.error) guard(detail.error)
   }, [detail.error, guard])
 
+  const ts = useTurnstileToken('recover')
   const recover = useMutation({
     mutationFn: () =>
       api<CreateResponseResult>(`/events/${slug}/responses/recover`, {
         method: 'POST',
         body: { name: responseName, pin },
-        auth: { gate: slug },
+        auth: { gate: slug, turnstile: ts.token },
       }),
+    onSettled: ts.reset,
     onSuccess: (res) => {
       storage.setEdit(slug, { responseId: res.id, token: res.editToken })
       void qc.invalidateQueries({ queryKey: participantKeys.myResponse(slug, res.id) })
@@ -110,8 +113,9 @@ function EditForm({ slug }: { slug: string }) {
             </Field>
             <Field label="4桁のPIN">{(id) => <PinInput id={id} value={pin} onChange={setPin} />}</Field>
             {error && <ErrorNotice message={error} />}
-            <Button type="submit" disabled={recover.isPending}>
-              {recover.isPending ? 'たしかめています…' : 'ひらく'}
+            {ts.element}
+            <Button type="submit" disabled={recover.isPending || !ts.ready}>
+              {recover.isPending ? 'たしかめています…' : ts.ready ? 'ひらく' : '確認中…'}
             </Button>
             <p className="text-note text-muted">
               PINを設定していない人は名前が出てきません。その場合は幹事に連絡してください。
