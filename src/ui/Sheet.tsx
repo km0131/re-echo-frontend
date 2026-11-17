@@ -8,8 +8,10 @@ const SWIPE_CLOSE_PX = 80
  * 下から出るシート（スマホ）／中央のモーダル（幅640px以上）。ネイティブの dialog 要素なので、
  * フォーカスは中に閉じ込められる。見出しと閉じるボタンは上に固定し、中身だけスクロールする。
  *
- * 閉じ方は4つ（閉じるボタン・背景のタップ・Esc・見出しを下へスワイプ）。どれも onClose を呼ぶだけで、
- * 実際に閉じるかは親が open で決める（未保存の確認を挟めるようにするため）。
+ * 閉じ方は5つ（閉じるボタン・背景のタップ・Esc・見出しを下へスワイプ・ブラウザの「戻る」）。どれも onClose を
+ * 呼ぶだけで、実際に閉じるかは親が open で決める（未保存の確認を挟めるようにするため）。
+ *
+ * 「戻る」で画面ごと離れないよう、開いたときに同じURLの履歴を1つ積む（useSheetHistory）。
  */
 export function Sheet({
   open,
@@ -25,6 +27,7 @@ export function Sheet({
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
+  useSheetHistory(open, onClose)
   const swipe = useRef<{ startY: number; id: number } | null>(null)
   const [dragY, setDragY] = useState(0)
 
@@ -103,4 +106,57 @@ export function Sheet({
       )}
     </dialog>
   )
+}
+
+/** 履歴の state に付ける目印（React Router の state はそのまま写して、ページの番号 idx を変えない） */
+const HISTORY_MARK = 'choseiSheet'
+
+/**
+ * シートを開いている間だけ、同じURLの履歴を1つ積む。
+ * - 「戻る」でその履歴が取り除かれたら、すぐ積み直してから onClose（閉じたい）を知らせる。
+ *   親が閉じれば下の「閉じたとき」で取り除き、閉じなければ（未保存の確認で「閉じない」）積んだまま残る。
+ * - ほかの閉じ方で閉じたときは history.back() で取り除く（そのときの popstate は無視する）。
+ */
+const markOf = () => (window.history.state ?? {})[HISTORY_MARK] as string | undefined
+const pushMark = (id: string) =>
+  window.history.pushState({ ...(window.history.state ?? {}), [HISTORY_MARK]: id }, '')
+
+function useSheetHistory(open: boolean, onClose: () => void) {
+  const id = useId()
+  const pushed = useRef(false)
+  const ignorePops = useRef(0)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  // popstate は開閉に関係なくずっと受ける（閉じたときの history.back() の分を確実に数えて捨てるため）
+  useEffect(() => {
+    const onPop = () => {
+      if (ignorePops.current > 0) {
+        ignorePops.current--
+        return
+      }
+      if (!pushed.current || markOf() === id) return
+      // 「戻る」で積んだ履歴が取り除かれた → 積み直して、閉じたいと知らせる
+      pushMark(id)
+      onCloseRef.current()
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [id])
+
+  useEffect(() => {
+    if (open && !pushed.current) {
+      pushMark(id)
+      pushed.current = true
+    }
+    if (!open && pushed.current) {
+      pushed.current = false
+      if (markOf() === id) {
+        ignorePops.current++
+        window.history.back()
+      }
+    }
+  }, [open, id])
 }

@@ -141,6 +141,16 @@ function ResponseForm({
   useEffect(() => {
     dirtyRef.current = isDirty
   }, [dirtyRef, isDirty])
+  // 変更があるときだけ、タブを閉じる・再読み込みでブラウザ標準の確認を出す。シートを閉じれば（このフォームが消えれば）外れる
+  useEffect(() => {
+    if (!isDirty) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = '' // 古いブラウザ向け
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [isDirty])
   // 名前のエラーはシートの上のほうにあるので、見えるところまで戻してフォーカスする
   const nameErrorAt = (message: string) => {
     setNameError(message)
