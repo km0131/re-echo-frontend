@@ -23,7 +23,7 @@ export default {
         dash: c('dash'),
         tape: 'rgb(var(--c-tape) / 0.75)',
         yes: c('yes'),
-        maybe: { DEFAULT: c('maybe'), ink: c('maybe-ink') },
+        maybe: { DEFAULT: c('maybe'), ink: c('maybe-ink'), deep: c('maybe-deep') },
         no: c('no'),
         off: c('off'),
         kraft: c('kraft'),

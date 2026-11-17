@@ -233,38 +233,40 @@ function AnswerForm({ slug }: { slug: string }) {
           )}
         </Field>
 
-        <Field
-          label="4桁のPIN（任意）"
-          hint={
-            editing ? (
-              <>
-                {mine.data?.hasPin ? '変更する場合のみ入力。' : ''}別のスマホから直すときに使います
-                <Link
-                  to={`/e/${slug}/pin`}
-                  className="ml-1 font-medium text-navy underline underline-offset-4"
-                >
-                  PINを変更
-                </Link>
-              </>
-            ) : (
-              '別のスマホから直すときに使います'
-            )
-          }
-          error={pinError}
-        >
-          {(id, desc) => (
-            <PinInput
-              id={id}
-              aria-describedby={desc}
-              value={pin}
-              invalid={!!pinError}
-              onChange={(v) => {
-                setPin(v)
-                setPinError(null)
-              }}
-            />
-          )}
-        </Field>
+        {editing ? (
+          // 編集中は PIN 欄を出さず、PIN の設定・変更は専用の画面でする（入力 → 確認の2回）
+          <section aria-labelledby="pin-heading" className="flex flex-col gap-0.5">
+            <h2 id="pin-heading" className="text-label font-medium text-ink">
+              4桁のPIN
+            </h2>
+            <p className="text-note text-muted">
+              {mine.data?.hasPin
+                ? '設定済みです。別のスマホから直すときに使います'
+                : 'まだ設定していません。決めておくと、別のスマホからも直せます'}
+            </p>
+            <Link
+              to={`/e/${slug}/pin`}
+              className="inline-flex min-h-tap items-center self-start px-1 text-label font-medium text-navy underline underline-offset-4 hover:text-navy-deep"
+            >
+              {mine.data?.hasPin ? 'PINを変更' : 'PINを設定'}
+            </Link>
+          </section>
+        ) : (
+          <Field label="4桁のPIN（任意）" hint="別のスマホから直すときに使います" error={pinError}>
+            {(id, desc) => (
+              <PinInput
+                id={id}
+                aria-describedby={desc}
+                value={pin}
+                invalid={!!pinError}
+                onChange={(v) => {
+                  setPin(v)
+                  setPinError(null)
+                }}
+              />
+            )}
+          </Field>
+        )}
 
         {formError && <ErrorNotice message={formError} />}
         {ts.element}

@@ -9,7 +9,7 @@ const buttonBase =
 const variants: Record<Variant, string> = {
   primary: 'h-[54px] rounded-btn bg-navy text-paper hover:bg-navy-deep active:bg-navy-deep',
   // 取り消せない操作の実行ボタン（確認ダイアログの「削除する」など）。主ボタンと同じ形で、色だけ maybe-ink
-  caution: 'h-[54px] rounded-btn bg-maybe-ink text-paper hover:bg-maybe active:bg-maybe',
+  caution: 'h-[54px] rounded-btn bg-maybe-ink text-paper hover:bg-maybe-deep active:bg-maybe-deep',
   secondary: 'h-[52px] rounded-btn border-strong border-navy bg-card text-navy hover:bg-highlight',
   dashed:
     'h-[52px] rounded-btn border-strong border-dashed border-navy bg-transparent text-navy hover:bg-card',

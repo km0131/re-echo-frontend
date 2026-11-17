@@ -65,7 +65,7 @@ function Done({ slug }: { slug: string }) {
           to={`/e/${slug}/pin`}
           className="mx-auto inline-flex min-h-tap items-center px-1 text-label text-muted underline underline-offset-4 hover:text-navy"
         >
-          PINを変更
+          {mine.data?.hasPin ? 'PINを変更' : 'PINを設定'}
         </Link>
       </div>
     </Page>

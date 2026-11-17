@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { CopyButton } from '../../components/CopyButton'
 import { CandidateChoices } from '../../components/ResponseFields'
 import { choicesToSend, missingCandidates, surveyToSend, surveyToState } from '../../lib/responseForm'
@@ -38,43 +38,70 @@ export function ResponseSheet({
 }) {
   // PIN を再設定した直後だけ、新しい PIN を表示する（閉じたら二度と出さない）
   const [revealed, setRevealed] = useState<{ pin: string; revoked: boolean } | null>(null)
+  // フォームに保存していない変更があるか（フォームが知らせる）。あれば閉じる前に確認する
+  const dirty = useRef(false)
+  const [confirmClose, setConfirmClose] = useState(false)
   const close = () => {
+    dirty.current = false
+    setConfirmClose(false)
     setRevealed(null)
     onClose()
   }
+  // 閉じるボタン・背景のタップ・Esc・下へのスワイプ
+  const requestClose = () => (dirty.current ? setConfirmClose(true) : close())
   const title =
     target === 'new' ? '代理で回答を追加' : revealed ? '新しいPIN' : target ? `${target.name}さんの回答` : ''
   return (
-    <Sheet open={target !== null} title={title} onClose={close}>
-      {target !== null &&
-        (revealed ? (
-          <PinReveal
-            pin={revealed.pin}
-            revoked={revealed.revoked}
-            name={target === 'new' ? '' : target.name}
-            onClose={close}
-          />
-        ) : (
-          <ResponseForm
-            key={target === 'new' ? 'new' : target.id}
-            event={d}
-            target={target}
-            onDone={close}
-            onPinReset={(pin, revoked) => setRevealed({ pin, revoked })}
-          />
-        ))}
-    </Sheet>
+    <>
+      <Sheet open={target !== null} title={title} onClose={requestClose}>
+        {target !== null &&
+          (revealed ? (
+            <PinReveal
+              pin={revealed.pin}
+              revoked={revealed.revoked}
+              name={target === 'new' ? '' : target.name}
+              onClose={close}
+            />
+          ) : (
+            <ResponseForm
+              key={target === 'new' ? 'new' : target.id}
+              event={d}
+              target={target}
+              dirtyRef={dirty}
+              onDone={close}
+              onPinReset={(pin, revoked) => {
+                dirty.current = false
+                setRevealed({ pin, revoked })
+              }}
+            />
+          ))}
+      </Sheet>
+      {/* シートの外に置く（中に置くと、この確認の Esc やクリックがシートにも伝わるため） */}
+      <Dialog
+        open={confirmClose}
+        title="保存していない変更があります。閉じますか？"
+        confirmLabel="閉じる"
+        cancelLabel="閉じない"
+        caution
+        onClose={() => setConfirmClose(false)}
+        onConfirm={close}
+      >
+        <p>閉じると、入力した内容は消えます。</p>
+      </Dialog>
+    </>
   )
 }
 
 function ResponseForm({
   event: d,
   target,
+  dirtyRef,
   onDone,
   onPinReset,
 }: {
   event: AdminEvent
   target: AdminResponseItem | 'new'
+  dirtyRef: RefObject<boolean>
   onDone: () => void
   onPinReset: (pin: string, revoked: boolean) => void
 }) {
@@ -96,6 +123,24 @@ function ResponseForm({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const nameRef = useRef<HTMLInputElement>(null)
+  const [pinDraft, setPinDraft] = useState(false) // PIN の再設定フォームに入力中か
+
+  // 開いたときの値と比べて、変わっていれば「保存していない変更あり」
+  const [initialSnapshot] = useState(() =>
+    JSON.stringify([
+      initial?.name ?? '',
+      initial?.comment ?? '',
+      initial?.choices ?? {},
+      surveyToSend(d.survey, surveyToState(initial?.survey)),
+      '',
+    ]),
+  )
+  const isDirty =
+    pinDraft ||
+    JSON.stringify([name, comment, choices, surveyToSend(d.survey, answers), pin]) !== initialSnapshot
+  useEffect(() => {
+    dirtyRef.current = isDirty
+  }, [dirtyRef, isDirty])
   // 名前のエラーはシートの上のほうにあるので、見えるところまで戻してフォーカスする
   const nameErrorAt = (message: string) => {
     setNameError(message)
@@ -245,7 +290,13 @@ function ResponseForm({
 
       {initial && (
         <>
-          <PinSection slug={d.slug} response={initial} onReset={onPinReset} showError={showError} />
+          <PinSection
+            slug={d.slug}
+            response={initial}
+            onReset={onPinReset}
+            onDraftChange={setPinDraft}
+            showError={showError}
+          />
           <section className="flex flex-col gap-2 border-t border-line pt-section-sm">
             <h3 className="text-label font-medium">回答の削除</h3>
             <div>
@@ -281,17 +332,34 @@ function PinSection({
   slug,
   response: r,
   onReset,
+  onDraftChange,
   showError,
 }: {
   slug: string
   response: AdminResponseItem
   onReset: (pin: string, revoked: boolean) => void
+  /** PIN を入力中か（未保存の確認に使う） */
+  onDraftChange: (draft: boolean) => void
   showError: (e: Error) => void
 }) {
   const refresh = useRefreshAfterResponseChange(slug)
-  const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState<PinMode>('random')
-  const [pin, setPin] = useState('')
+  const [open, setOpenState] = useState(false)
+  const [mode, setModeState] = useState<PinMode>('random')
+  const [pin, setPinState] = useState('')
+  // 入力中かどうかは、変えた操作のその場で親に知らせる
+  const report = (o: boolean, m: PinMode, p: string) => onDraftChange(o && m === 'manual' && p !== '')
+  const setOpen = (o: boolean) => {
+    setOpenState(o)
+    report(o, mode, pin)
+  }
+  const setMode = (m: PinMode) => {
+    setModeState(m)
+    report(open, m, pin)
+  }
+  const setPin = (p: string) => {
+    setPinState(p)
+    report(open, mode, p)
+  }
   const [revoke, setRevoke] = useState(false)
   const [pinError, setPinError] = useState<string | null>(null)
   const [deleted, setDeleted] = useState(false)
