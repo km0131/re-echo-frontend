@@ -55,11 +55,7 @@ export function Dialog({
         </h2>
         {children && <div className="flex flex-col gap-3 text-body">{children}</div>}
         <div className="flex flex-col gap-2">
-          <Button
-            type="submit"
-            disabled={busy}
-            className={caution ? 'bg-maybe-ink hover:bg-maybe' : undefined}
-          >
+          <Button type="submit" disabled={busy} variant={caution ? 'caution' : 'primary'}>
             {confirmLabel}
           </Button>
           <Button variant="secondary" onClick={onClose}>

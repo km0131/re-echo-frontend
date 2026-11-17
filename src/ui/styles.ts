@@ -1,13 +1,15 @@
 // 部品で共有するクラス名（Fast Refresh のため、コンポーネントとは別ファイルに置く）
 import { cx } from '../lib/cx'
 
-export type Variant = 'primary' | 'secondary' | 'dashed'
+export type Variant = 'primary' | 'secondary' | 'dashed' | 'caution'
 
 const buttonBase =
   'inline-flex w-full items-center justify-center gap-2 px-4 text-input font-bold tracking-button transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 
 const variants: Record<Variant, string> = {
   primary: 'h-[54px] rounded-btn bg-navy text-paper hover:bg-navy-deep active:bg-navy-deep',
+  // 取り消せない操作の実行ボタン（確認ダイアログの「削除する」など）。主ボタンと同じ形で、色だけ maybe-ink
+  caution: 'h-[54px] rounded-btn bg-maybe-ink text-paper hover:bg-maybe active:bg-maybe',
   secondary: 'h-[52px] rounded-btn border-strong border-navy bg-card text-navy hover:bg-highlight',
   dashed:
     'h-[52px] rounded-btn border-strong border-dashed border-navy bg-transparent text-navy hover:bg-card',

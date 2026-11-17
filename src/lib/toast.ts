@@ -2,7 +2,9 @@
 import { createContext, useContext } from 'react'
 import { ApiError } from './api'
 
-export type ToastApi = { show: (message: string) => void }
+export type ToastTone = 'error' | 'info'
+/** tone：error は通信エラー（maybe-ink）、info は操作の結果（sepia-ink） */
+export type ToastApi = { show: (message: string, tone?: ToastTone) => void }
 
 export const ToastContext = createContext<ToastApi>({ show: () => {} })
 

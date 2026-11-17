@@ -202,6 +202,7 @@ S＝幹事セッション、A＝幹事権限（セッションのオーナー、
 | POST | `/events/{slug}/photos/{id}/hide-request` | G | 非表示依頼 |
 | PATCH | `/events/{slug}/photos/{id}` | A | 承認、公開範囲、並び順、キャプション |
 | GET | `/events/{slug}/admin/photos` | A | 管理画面用の全写真（承認待ち・非表示・下書き・非表示依頼を含む） |
+| DELETE | `/events/{slug}/admin/photos/{id}` | A | 幹事による削除。公開範囲・状態に関係なく消せる（17章。修正04） |
 | GET | `/media/{photoId}/{size}` | 区分による | 画像配信（public は認証不要でキャッシュ可、members は G が必要）。**`/api/v1` の外（API と同じ origin の直下）** |
 | GET | `/og/{slug}.png` | － | OGP画像。**`/api/v1` の外** |
 
@@ -531,6 +532,7 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 | 写真の非表示依頼 | `POST /events/{slug}/photos/{id}/hide-request` | 401 | 401 | 204 | 401 |
 | 写真の投稿 | `POST /events/{slug}/photos` | 201 | 201 | 201 | 401 |
 | 写真の削除（投稿者本人の写真） | `DELETE /events/{slug}/photos/{id}` | 204 | 204 | 204 | 401 |
+| 写真の削除（幹事。公開範囲に関係なく） | `DELETE /events/{slug}/admin/photos/{id}` | 204 | 204 | 401 | 401 |
 | コメントの一覧 | `GET /events/{slug}/photos/{id}/comments` | 200 | 200 | 200 | 401 |
 | コメントの投稿 | `POST /events/{slug}/photos/{id}/comments` | 401 | 401 | 201 | 401 |
 | コメントの削除（書いた本人のトークン） | `DELETE /events/{slug}/photos/{id}/comments/{commentId}` | 204 | 204 | 204 | 403 |
@@ -873,3 +875,31 @@ VITE_TURNSTILE_SITE_KEY=
 - 指示では PIN の形式エラーが `invalid_pin` だったが、既存の参加者 API と同じ `pin_invalid` にした（同じ意味のコードを2つにしないため）。
 - 指示では「revoke 後の古い E トークンは 401」だったが、既存の参加者 API（変更しない約束）は E が合わないとき 403 `edit_forbidden` を返すので、それに合わせた。
 - パスは既存の API と同じく `/api/v1` の下（指示の `/api/events/…` ではない）。
+
+## 17. 修正04（公開中の写真を管理画面から直接削除する）
+
+### 17.1 目的
+- 管理画面の「公開中」（public／members）の写真を、非公開に戻す手順を踏まずにその場で消せるようにする（間違えて公開した写真、本人から消してほしいと言われた写真）。
+- ゴミ箱・論理削除（復元）・一括削除は作らない。参加者が自分の写真を消す `DELETE /events/{slug}/photos/{id}` の仕様は変えない。
+
+### 17.2 API
+```jsonc
+// DELETE /events/{slug}/admin/photos/{id}   （A：オーナーのセッション、または X-Admin-Key）
+← 204
+// 401 admin_required（A なし）/ 403 forbidden（別の幹事のセッション）
+// 404 photo_not_found（無い写真・別イベントの写真）
+```
+- 公開範囲（public／members／draft）と状態（承認待ち・非表示なども）に関係なく消せる。
+
+### 17.3 削除の処理
+1. 1つのトランザクションで `photos` の行を消す（コメント・非表示依頼は外部キーで一緒に消える）。並び順（`sort_order`）に欠番ができるときは、後ろの写真を1つずつ詰める。同じ並び順の写真が他にあれば欠番にならないので詰めない。
+2. コミットしてから、ファイル（原本、表示用 1600px、サムネイル 400px）を消す。消せなかったファイルがあっても API は 204 を返し、警告ログ「写真のファイルを消せませんでした」を残す（行が無いので、残ったファイルが配信されることはない）。
+3. 操作ログ「幹事が写真を削除しました」を INFO で残す：`role`（owner／coadmin）、オーナーなら `userId`、`eventId`、`photoId`、`visibility`、`status`、`at`（UTC）。
+4. 写真の変更として知らせる（`photos`）。これで次がそのまま反映される。
+   - OGP 画像の作り直し（消した写真を使っていれば次の public 写真に、public 写真が無くなれば写真なしの画像に）。`ogImageUrl` の `?v=` も変わる。
+   - SSE の `photos`（ギャラリー・イベントトップのヘッダー・回答完了画面のミニギャラリーが読み直す）。
+- ゲートのヘッダー（`publicPhotoUrl`）、イベントトップのヘッダー、ミニギャラリーは、どれも DB の写真一覧から選ぶので、消した写真は候補に出ない。
+
+### 17.4 実装に合わせた補足（修正04）
+- パスは既存の API と同じく `/api/v1` の下（指示の `/api/events/…` ではない）。
+- 共同幹事の管理キーで投稿した写真は、もともと承認待ちになる（オーナーの投稿だけすぐ承認）。削除はどちらの権限でもできる。

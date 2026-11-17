@@ -94,6 +94,12 @@ export const InfoIcon = (p: IconProps) => (
   </Icon>
 )
 
+export const TrashIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" />
+  </Icon>
+)
+
 export const PlusIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 5v14M5 12h14" />
