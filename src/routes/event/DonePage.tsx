@@ -1,6 +1,6 @@
 import confetti from 'canvas-confetti'
 import { useEffect, useState } from 'react'
-import { Navigate, useLocation, useParams } from 'react-router'
+import { Link, Navigate, useLocation, useParams } from 'react-router'
 import { Page } from '../../components/Page'
 import { memberMediaUrl } from '../../lib/api'
 import { useMyResponse } from '../../lib/participant'
@@ -61,6 +61,12 @@ function Done({ slug }: { slug: string }) {
           写真をもっと見る
         </ButtonLink>
         <ButtonLink to={`/e/${slug}`}>みんなの回答を見る</ButtonLink>
+        <Link
+          to={`/e/${slug}/pin`}
+          className="mx-auto inline-flex min-h-tap items-center px-1 text-label text-muted underline underline-offset-4 hover:text-navy"
+        >
+          {mine.data?.hasPin ? 'PINを変更' : 'PINを設定'}
+        </Link>
       </div>
     </Page>
   )

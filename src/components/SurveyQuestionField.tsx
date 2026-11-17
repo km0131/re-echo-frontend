@@ -1,6 +1,6 @@
 import { useId } from 'react'
-import type { SurveyAnswer, SurveyQuestion } from '../../lib/types'
-import { Pill, PillGroup, TextInput } from '../../ui'
+import type { SurveyAnswer, SurveyQuestion } from '../lib/types'
+import { Pill, PillGroup, TextInput } from '../ui'
 
 /** アンケートの設問1つ。single と multi はピル、text は1行入力（design.md 3.3 の 6）。任意回答。 */
 export function SurveyQuestionField({

@@ -139,6 +139,9 @@ S＝幹事セッション、A＝幹事権限（セッションのオーナー、
 | PUT | `/events/{slug}/survey` | A | アンケート設問の定義 | 2 |
 | POST・DELETE | `/events/{slug}/confirm` | A | 日程の確定・取り消し | 2 |
 | GET | `/events/{slug}/share-text` | A | LINE共有用テキスト | 2 |
+| GET・POST | `/events/{slug}/admin/responses` | A | 全員の回答の一覧・代理で回答を追加（16章） | 修正03 |
+| PUT・DELETE | `/events/{slug}/admin/responses/{id}` | A | 回答の編集・削除（16章） | 修正03 |
+| PUT | `/events/{slug}/admin/responses/{id}/pin` | A | PIN の再設定・削除（16章） | 修正03 |
 
 ```jsonc
 // POST /events
@@ -166,6 +169,7 @@ S＝幹事セッション、A＝幹事権限（セッションのオーナー、
 | POST | `/events/{slug}/responses` | G | 回答の新規作成（編集トークンを返す） | 1 |
 | GET・PUT・DELETE | `/events/{slug}/responses/{id}` | G＋E | 自分の回答の取得・更新・削除 | 1 |
 | POST | `/events/{slug}/responses/recover` | G | 名前＋PINで編集トークンを再発行 | 2 |
+| PUT | `/events/{slug}/responses/me/pin` | G＋E | 自分の PIN の設定・変更（16章） | 修正03 |
 | GET | `/events/{slug}/stream` | G（クエリ `?gate=`） | 集計更新のSSE | 3 |
 
 ```jsonc
@@ -198,6 +202,7 @@ S＝幹事セッション、A＝幹事権限（セッションのオーナー、
 | POST | `/events/{slug}/photos/{id}/hide-request` | G | 非表示依頼 |
 | PATCH | `/events/{slug}/photos/{id}` | A | 承認、公開範囲、並び順、キャプション |
 | GET | `/events/{slug}/admin/photos` | A | 管理画面用の全写真（承認待ち・非表示・下書き・非表示依頼を含む） |
+| DELETE | `/events/{slug}/admin/photos/{id}` | A | 幹事による削除。公開範囲・状態に関係なく消せる（17章。修正04） |
 | GET | `/media/{photoId}/{size}` | 区分による | 画像配信（public は認証不要でキャッシュ可、members は G が必要）。**`/api/v1` の外（API と同じ origin の直下）** |
 | GET | `/og/{slug}.png` | － | OGP画像。**`/api/v1` の外** |
 
@@ -228,7 +233,7 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 | --- | --- |
 | `events` | id, slug（一意）, title, description, owner_id, passphrase_hash, passphrase_version, admin_key_hash, ends_on, confirmed_candidate_id, photo_approval（manual／auto）, photo_limit_per_person, photo_quota_mb, class_size（任意。回答率バー用）, gate_caption（ゲート写真のキャプション）, created_at, updated_at |
 | `candidates` | id, event_id, starts_at, label, sort_order |
-| `responses` | id, event_id, name（イベント内で一意）, comment, pin_hash, edit_token_hash, pin_failed_count, pin_locked_until, created_at, updated_at |
+| `responses` | id, event_id, name（イベント内で一意）, comment, pin_hash, edit_token_hash, pin_failed_count, pin_locked_until, created_at, updated_at, updated_by（self／admin。修正03） |
 | `response_choices` | response_id, candidate_id, choice（yes／maybe／no）。主キーは (response_id, candidate_id) |
 | `gate_tokens` | token_hash, event_id, passphrase_version, expires_at, created_at |
 
@@ -506,6 +511,11 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 | 日程の確定・取り消し | `POST・DELETE /events/{slug}/confirm` | 200 | 200 | 401 | 401 |
 | 共有テキスト | `GET /events/{slug}/share-text` | 200 | 200 | 401 | 401 |
 | 写真の管理一覧 | `GET /events/{slug}/admin/photos` | 200 | 200 | 401 | 401 |
+| 回答の管理一覧 | `GET /events/{slug}/admin/responses` | 200 | 200 | 401 | 401 |
+| 幹事による回答の代理追加 | `POST /events/{slug}/admin/responses` | 201 | 201 | 401 | 401 |
+| 幹事による回答の編集 | `PUT /events/{slug}/admin/responses/{id}` | 200 | 200 | 401 | 401 |
+| 幹事による回答の削除 | `DELETE /events/{slug}/admin/responses/{id}` | 204 | 204 | 401 | 401 |
+| 幹事による PIN の再設定 | `PUT /events/{slug}/admin/responses/{id}/pin` | 204 | 204 | 401 | 401 |
 | 写真の承認など（状態・公開範囲・並び順） | `PATCH /events/{slug}/photos/{id}` | 200 | 200 | 403 | 401 |
 | 写真のタイトル・キャプション変更（投稿者本人の写真） | `PATCH /events/{slug}/photos/{id}` | 200 | 200 | 200 | 401 |
 | コメントの非表示・戻す | `PATCH /events/{slug}/photos/{id}/comments/{commentId}` | 204 | 204 | 401 | 401 |
@@ -517,10 +527,12 @@ SQLite（WALモード、`foreign_keys=ON`、`busy_timeout=5000`）。IDはULID�
 | 回答の作成 | `POST /events/{slug}/responses` | 401 | 401 | 201 | 401 |
 | PINで再発行 | `POST /events/{slug}/responses/recover` | 401 | 401 | 200 | 401 |
 | 自分の回答の取得・更新・削除 | `GET・PUT・DELETE /events/{slug}/responses/{id}` | 401 | 401 | 2xx | 401 |
+| 自分の PIN の変更 | `PUT /events/{slug}/responses/me/pin` | 401 | 401 | 204 | 401 |
 | 写真の一覧 | `GET /events/{slug}/photos` | 401 | 401 | 200 | 401 |
 | 写真の非表示依頼 | `POST /events/{slug}/photos/{id}/hide-request` | 401 | 401 | 204 | 401 |
 | 写真の投稿 | `POST /events/{slug}/photos` | 201 | 201 | 201 | 401 |
 | 写真の削除（投稿者本人の写真） | `DELETE /events/{slug}/photos/{id}` | 204 | 204 | 204 | 401 |
+| 写真の削除（幹事。公開範囲に関係なく） | `DELETE /events/{slug}/admin/photos/{id}` | 204 | 204 | 401 | 401 |
 | コメントの一覧 | `GET /events/{slug}/photos/{id}/comments` | 200 | 200 | 200 | 401 |
 | コメントの投稿 | `POST /events/{slug}/photos/{id}/comments` | 401 | 401 | 201 | 401 |
 | コメントの削除（書いた本人のトークン） | `DELETE /events/{slug}/photos/{id}/comments/{commentId}` | 204 | 204 | 204 | 403 |
@@ -808,3 +820,94 @@ VITE_TURNSTILE_SITE_KEY=
 - PIN での再発行（`recover`）は回答者の PIN の失敗回数とは別。Turnstile の失敗では PIN のロックは進まない。
 - ログには結果・action・error-codes・hostname だけを出し、トークンは出さない。
 
+## 16. 修正03（幹事による回答の編集と PIN 再設定）
+
+### 16.1 目的
+- 幹事が全員の回答を代わりに直せるようにする（電話で聞いた回答の入力、名前の打ち間違いの修正など）。
+- PIN を忘れた参加者の PIN を幹事が再設定できるようにする。参加者本人も、自分の端末から PIN を変えられるようにする。
+- 幹事は PIN を「確認」できない（ハッシュしか持たないため）。できるのは再設定と削除だけ。
+
+### 16.2 テーブル
+- `responses.updated_by`：最後に回答の中身を書き換えた人。`self`（本人）／`admin`（幹事）。初期値 `self`（マイグレーション `0005_response_updated_by`。既存の回答は `self`）。
+- 本人の作成・編集で `self`、幹事の代理追加・編集で `admin` にする。PIN の再設定・変更では変えない（回答の中身は変わらないため）。
+- 編集履歴（差分）は保存しない。
+
+### 16.3 幹事用の回答 API（A）
+```jsonc
+// GET /events/{slug}/admin/responses
+← { "responses": [ { "id", "name", "comment", "choices": { "<candidateId>": "yes" | "maybe" | "no" },
+                     "hasPin": true, "createdAt", "updatedAt", "updatedBy": "self" | "admin",
+                     "survey": [ { "questionId", "optionIds": [ … ], "text"? } ] } ] }   // 古い順。PIN のハッシュは返さない
+
+// POST /events/{slug}/admin/responses   代理で回答を追加
+→ { "name", "comment", "choices", "pin"?: "1234", "survey"?: [ … ] }   // 参加者の POST と同じ入力。PIN は任意
+← 201 { 一覧の1件と同じ形 }   // updatedBy は "admin"。編集トークンは返さない（本人は名前＋PINで引き継ぐ）
+
+// PUT /events/{slug}/admin/responses/{id}
+→ { "name", "comment", "choices", "survey"?: [ … ] }   // survey を省略したら変えない。pin は送れない（400）
+← 200 { 一覧の1件と同じ形 }   // updatedBy は "admin"。PIN と編集トークンは変わらない
+
+// DELETE /events/{slug}/admin/responses/{id}   → 204（◯△✕・アンケートの回答も消える）
+
+// PUT /events/{slug}/admin/responses/{id}/pin
+→ { "pin": "1234" | null, "revokeEditTokens": false }
+← 204
+// pin が null（または省略）なら PIN を削除。設定・削除のどちらでも失敗回数とロックを解除する
+// revokeEditTokens が true なら、その回答の編集トークンを作り直す（今までの端末からは 403 edit_forbidden）
+```
+- エラー：400 `pin_invalid`（半角数字ちょうど4桁でない）、409 `name_taken`（同じイベントに同じ名前。文言は幹事向け）、404 `response_not_found`（無い回答・別イベントの回答）、入力の検証は参加者の POST・PUT と同じ（`choices_incomplete` など）。
+- 認証：A がなければ 401 `admin_required`、別の幹事のセッションは 403 `forbidden`。
+
+### 16.4 参加者の PIN 変更（G＋E）
+```jsonc
+// PUT /events/{slug}/responses/me/pin   （X-Gate-Token と X-Edit-Token）
+→ { "pin": "1234" }
+← 204
+// 編集トークンで本人と分かっているので、今の PIN は聞かない。失敗回数とロックも解除する
+// 400 pin_invalid / 401 gate_required / 403 edit_forbidden（編集トークンが無い・ちがう）
+```
+- 画面：`/e/:slug/pin`（PINを変更。回答フォームの編集中と回答完了画面からリンク）。幹事の操作は管理画面の「回答」タブ（`/e/:slug/admin?tab=responses`）。
+- PIN は今までどおり argon2id のハッシュだけを保存し、ログにも出さない。
+- 更新・削除・PIN の変更のあとは、SSE で `responses` の更新を流す（`hasPin` も変わるため）。
+
+### 16.5 実装に合わせた補足（修正03）
+- 指示では JSON のキーが `has_pin`・`updated_by`・`revoke_edit_tokens` だったが、CLAUDE.md の規約（camelCase）と既存の `hasPin` に合わせて `hasPin`・`updatedBy`・`revokeEditTokens` にした。
+- 指示では PIN の形式エラーが `invalid_pin` だったが、既存の参加者 API と同じ `pin_invalid` にした（同じ意味のコードを2つにしないため）。
+- 指示では「revoke 後の古い E トークンは 401」だったが、既存の参加者 API（変更しない約束）は E が合わないとき 403 `edit_forbidden` を返すので、それに合わせた。
+- パスは既存の API と同じく `/api/v1` の下（指示の `/api/events/…` ではない）。
+
+## 17. 修正04（公開中の写真を管理画面から直接削除する）
+
+### 17.1 目的
+- 管理画面の「公開中」（public／members）の写真を、非公開に戻す手順を踏まずにその場で消せるようにする（間違えて公開した写真、本人から消してほしいと言われた写真）。
+- ゴミ箱・論理削除（復元）・一括削除は作らない。参加者が自分の写真を消す `DELETE /events/{slug}/photos/{id}` の仕様は変えない。
+
+### 17.2 API
+```jsonc
+// DELETE /events/{slug}/admin/photos/{id}   （A：オーナーのセッション、または X-Admin-Key）
+← 204
+// 401 admin_required（A なし）/ 403 forbidden（別の幹事のセッション）
+// 404 photo_not_found（無い写真・別イベントの写真）
+```
+- 公開範囲（public／members／draft）と状態（承認待ち・非表示なども）に関係なく消せる。
+
+### 17.3 削除の処理
+1. 1つのトランザクションで `photos` の行を消す（コメント・非表示依頼は外部キーで一緒に消える）。並び順（`sort_order`）に欠番ができるときは、後ろの写真を1つずつ詰める。同じ並び順の写真が他にあれば欠番にならないので詰めない。
+2. コミットしてから、ファイル（原本、表示用 1600px、サムネイル 400px）を消す。消せなかったファイルがあっても API は 204 を返し、警告ログ「写真のファイルを消せませんでした」を残す（行が無いので、残ったファイルが配信されることはない）。
+3. 操作ログ「幹事が写真を削除しました」を INFO で残す：`role`（owner／coadmin）、オーナーなら `userId`、`eventId`、`photoId`、`visibility`、`status`、`at`（UTC）。
+4. 写真の変更として知らせる（`photos`）。これで次がそのまま反映される。
+   - OGP 画像の作り直し（消した写真を使っていれば次の public 写真に、public 写真が無くなれば写真なしの画像に）。`ogImageUrl` の `?v=` も変わる。
+   - SSE の `photos`（ギャラリー・イベントトップのヘッダー・回答完了画面のミニギャラリーが読み直す）。
+- ゲートのヘッダー（`publicPhotoUrl`）、イベントトップのヘッダー、ミニギャラリーは、どれも DB の写真一覧から選ぶので、消した写真は候補に出ない。
+
+### 17.4 実装に合わせた補足（修正04）
+- パスは既存の API と同じく `/api/v1` の下（指示の `/api/events/…` ではない）。
+- 共同幹事の管理キーで投稿した写真は、もともと承認待ちになる（オーナーの投稿だけすぐ承認）。削除はどちらの権限でもできる。
+
+### 17.5 トーストの使い方（画面。frontend の docs/design.md 5章と同じ）
+- トーストは原則使わない。使ってよいのは次の2つだけ。
+  - シートやダイアログを開いているときの通信エラー
+  - 管理画面での削除操作の結果（成功・失敗）
+- 参加者向けの画面では、通信エラー以外に使わない。
+- 表示場所は、いちばん手前の開いている dialog の中。なければページ本体。色はエラー（maybe-ink）と結果（セピア）の2種類。
+- 既知の課題：読み上げ用の領域を文言と同時に作っているため、読み上げソフトによっては読まれない。

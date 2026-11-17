@@ -34,6 +34,7 @@ import {
 import { CandidatesCard } from './CandidatesCard'
 import { DecideCard } from './DecideCard'
 import { PhotosTab } from './PhotosTab'
+import { ResponsesTab } from './ResponsesTab'
 import { SurveyTab } from './SurveyTab'
 
 /** イベント管理（design.md 3.8）。フェーズ1は「設定」タブのみ。 */
@@ -55,7 +56,10 @@ export default function AdminPage() {
   return <Admin slug={slug} />
 }
 
-type AdminTab = 'settings' | 'survey' | 'photos'
+type AdminTab = 'settings' | 'responses' | 'survey' | 'photos'
+
+// ?tab= で表すタブ（写真だけは /admin/photos）
+const QUERY_TABS: AdminTab[] = ['responses', 'survey']
 
 function Admin({ slug }: { slug: string }) {
   const location = useLocation()
@@ -100,15 +104,12 @@ function Admin({ slug }: { slug: string }) {
   const d = ev.data
   const owner = d.role === 'owner'
   // 写真タブは /e/:slug/admin/photos
-  const tab: AdminTab = location.pathname.endsWith('/photos')
-    ? 'photos'
-    : params.get('tab') === 'survey'
-      ? 'survey'
-      : 'settings'
+  const queryTab = QUERY_TABS.find((t) => t === params.get('tab'))
+  const tab: AdminTab = location.pathname.endsWith('/photos') ? 'photos' : (queryTab ?? 'settings')
   const setTab = (t: AdminTab) => {
     if (t === 'photos') navigate(`/e/${slug}/admin/photos`, { replace: true })
     else if (tab === 'photos')
-      navigate(`/e/${slug}/admin${t === 'survey' ? '?tab=survey' : ''}`, { replace: true })
+      navigate(`/e/${slug}/admin${t === 'settings' ? '' : `?tab=${t}`}`, { replace: true })
     else setParams(t === 'settings' ? {} : { tab: t }, { replace: true })
   }
   return (
@@ -121,6 +122,7 @@ function Admin({ slug }: { slug: string }) {
         onChange={setTab}
         items={[
           { key: 'settings', label: '設定' },
+          { key: 'responses', label: '回答' },
           { key: 'survey', label: 'アンケート' },
           { key: 'photos', label: '写真', badge: pendingCount },
         ]}
@@ -137,6 +139,7 @@ function Admin({ slug }: { slug: string }) {
           </ButtonLink>
         </>
       )}
+      {tab === 'responses' && <ResponsesTab event={d} />}
       {tab === 'survey' && <SurveyTab event={d} />}
       {tab === 'photos' && <PhotosTab event={d} />}
     </Page>

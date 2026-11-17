@@ -3,16 +3,16 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router'
 import { Page, PageTitle } from '../../components/Page'
 import { api, ApiError } from '../../lib/api'
-import { cx } from '../../lib/cx'
 import { participantKeys, useEventDetail, useGateGuard, useMyResponse } from '../../lib/participant'
 import { storage } from '../../lib/storage'
 import { useTurnstileToken } from '../../lib/useTurnstileToken'
 import { useTitle } from '../../lib/title'
 import type { CreateResponseResult, ResponseInput, ResponseItem, SurveyAnswer } from '../../lib/types'
+import { CandidateChoices } from '../../components/ResponseFields'
+import { choicesToSend, missingCandidates, surveyToSend, surveyToState } from '../../lib/responseForm'
+import { SurveyQuestionField } from '../../components/SurveyQuestionField'
 import {
   Button,
-  Card,
-  ChoiceButtons,
   ErrorNotice,
   Field,
   Notice,
@@ -23,7 +23,6 @@ import {
   TopBar,
   type Choice,
 } from '../../ui'
-import { SurveyQuestionField } from './SurveyQuestionField'
 
 /** 回答フォーム（design.md 3.3） */
 export default function AnswerPage() {
@@ -61,7 +60,7 @@ function AnswerForm({ slug }: { slug: string }) {
     setName(mine.data.name)
     setComment(mine.data.comment)
     setChoices(mine.data.choices)
-    setAnswers(Object.fromEntries((mine.data.survey ?? []).map((a) => [a.questionId, a])))
+    setAnswers(surveyToState(mine.data.survey))
   }, [mine.data])
 
   useEffect(() => {
@@ -136,7 +135,7 @@ function AnswerForm({ slug }: { slug: string }) {
     e.preventDefault()
     setFormError(null)
     setNameError(null)
-    const miss = d.candidates.filter((c) => !choices[c.id]).map((c) => c.id)
+    const miss = missingCandidates(d.candidates, choices)
     setMissing(new Set(miss))
     if (!name.trim()) {
       setNameError('なまえを入れてください')
@@ -155,27 +154,11 @@ function AnswerForm({ slug }: { slug: string }) {
       setFormError('まだ ◯△✕ がついていない日があります')
       return
     }
-    // 消えた候補日の選択は送らない
-    const sent: Record<string, Choice> = {}
-    for (const c of d.candidates) sent[c.id] = choices[c.id]
-    // 今ある設問への回答だけ送る（アンケートは任意）
-    const survey: SurveyAnswer[] = d.survey.flatMap((q): SurveyAnswer[] => {
-      const a = answers[q.id]
-      if (!a) return []
-      return q.type === 'text'
-        ? [{ questionId: q.id, text: a.text ?? '' }]
-        : [
-            {
-              questionId: q.id,
-              optionIds: (a.optionIds ?? []).filter((id) => q.options.some((o) => o.id === id)),
-            },
-          ]
-    })
     save.mutate({
       name: name.trim(),
       comment: comment.trim(),
-      choices: sent,
-      survey,
+      choices: choicesToSend(d.candidates, choices),
+      survey: surveyToSend(d.survey, answers),
       ...(pin ? { pin } : {}),
     })
   }
@@ -220,36 +203,13 @@ function AnswerForm({ slug }: { slug: string }) {
           )}
         </Field>
 
-        <section className="flex flex-col gap-1.5">
-          <h2 className="text-label font-medium">都合のいい日</h2>
-          <Card className="gap-0 py-1">
-            {d.candidates.map((c) => {
-              const bad = missing.has(c.id) && !choices[c.id]
-              return (
-                <div
-                  key={c.id}
-                  ref={(el) => {
-                    rowRefs.current[c.id] = el
-                  }}
-                  className={cx(
-                    'flex items-center justify-between gap-2 border-b border-line-soft py-3 last:border-0',
-                    bad && '-mx-2 rounded-field border-strong border-maybe px-2 last:border-strong',
-                  )}
-                >
-                  <span className="whitespace-nowrap text-label font-medium min-[380px]:text-body">
-                    {c.label}
-                  </span>
-                  <ChoiceButtons
-                    label={c.label}
-                    value={choices[c.id]}
-                    invalid={bad}
-                    onChange={(v) => setChoices((s) => ({ ...s, [c.id]: v }))}
-                  />
-                </div>
-              )
-            })}
-          </Card>
-        </section>
+        <CandidateChoices
+          candidates={d.candidates}
+          choices={choices}
+          missing={missing}
+          rowRefs={rowRefs}
+          onChange={(id, v) => setChoices((s) => ({ ...s, [id]: v }))}
+        />
 
         {d.survey.map((q) => (
           <SurveyQuestionField
@@ -273,28 +233,40 @@ function AnswerForm({ slug }: { slug: string }) {
           )}
         </Field>
 
-        <Field
-          label="4桁のPIN（任意）"
-          hint={
-            mine.data?.hasPin
-              ? '変更する場合のみ入力。別のスマホから直すときに使います'
-              : '別のスマホから直すときに使います'
-          }
-          error={pinError}
-        >
-          {(id, desc) => (
-            <PinInput
-              id={id}
-              aria-describedby={desc}
-              value={pin}
-              invalid={!!pinError}
-              onChange={(v) => {
-                setPin(v)
-                setPinError(null)
-              }}
-            />
-          )}
-        </Field>
+        {editing ? (
+          // 編集中は PIN 欄を出さず、PIN の設定・変更は専用の画面でする（入力 → 確認の2回）
+          <section aria-labelledby="pin-heading" className="flex flex-col gap-0.5">
+            <h2 id="pin-heading" className="text-label font-medium text-ink">
+              4桁のPIN
+            </h2>
+            <p className="text-note text-muted">
+              {mine.data?.hasPin
+                ? '設定済みです。別のスマホから直すときに使います'
+                : 'まだ設定していません。決めておくと、別のスマホからも直せます'}
+            </p>
+            <Link
+              to={`/e/${slug}/pin`}
+              className="inline-flex min-h-tap items-center self-start px-1 text-label font-medium text-navy underline underline-offset-4 hover:text-navy-deep"
+            >
+              {mine.data?.hasPin ? 'PINを変更' : 'PINを設定'}
+            </Link>
+          </section>
+        ) : (
+          <Field label="4桁のPIN（任意）" hint="別のスマホから直すときに使います" error={pinError}>
+            {(id, desc) => (
+              <PinInput
+                id={id}
+                aria-describedby={desc}
+                value={pin}
+                invalid={!!pinError}
+                onChange={(v) => {
+                  setPin(v)
+                  setPinError(null)
+                }}
+              />
+            )}
+          </Field>
+        )}
 
         {formError && <ErrorNotice message={formError} />}
         {ts.element}

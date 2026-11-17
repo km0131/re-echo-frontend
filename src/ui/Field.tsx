@@ -48,6 +48,7 @@ export function TextArea({ className, invalid, value, hand, rows = 3, ...rest }:
 }
 
 type PinInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> & {
+  ref?: Ref<HTMLInputElement>
   value: string
   onChange: (v: string) => void
   invalid?: boolean

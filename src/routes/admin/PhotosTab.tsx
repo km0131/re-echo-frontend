@@ -5,6 +5,8 @@ import { api, fetchBlobUrl, upload } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { formatDateTime } from '../../lib/date'
 import { GALLERY_TILTS, photoKeys, useAdminPhotos } from '../../lib/photos'
+import { prefersReducedMotion } from '../../lib/random'
+import { useToast } from '../../lib/toast'
 import type { AdminEvent, AdminPhoto, Visibility } from '../../lib/types'
 import {
   Card,
@@ -22,6 +24,7 @@ import {
   Polaroid,
   Skeleton,
   SmallButton,
+  TrashIcon,
   UploadIcon,
 } from '../../ui'
 import { PhotoDetailDialog } from './PhotoDetailDialog'
@@ -50,6 +53,9 @@ function matches(p: AdminPhoto, f: Filter) {
   }
 }
 
+/** 削除した写真を一覧から取り除くアニメーションの長さ（reduced-motion なら 0） */
+const LEAVE_MS_DEFAULT = 300
+
 /** 写真管理（design.md 4章「写真管理」）。 */
 export function PhotosTab({ event: d }: { event: AdminEvent }) {
   const qc = useQueryClient()
@@ -61,6 +67,13 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [order, setOrder] = useState<string[] | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
+  // 削除（修正04）：確認中の写真、取り除くアニメーション中の写真、一覧から外した写真
+  const toast = useToast()
+  const LEAVE_MS = prefersReducedMotion() ? 0 : LEAVE_MS_DEFAULT
+  const [deleteTarget, setDeleteTarget] = useState<AdminPhoto | null>(null)
+  const [leaving, setLeaving] = useState<Set<string>>(() => new Set())
+  const [removed, setRemoved] = useState<Set<string>>(() => new Set())
+  const leaveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
   useEffect(() => {
     if (photos.error) guard(photos.error)
@@ -86,7 +99,46 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
     },
   })
 
-  const all = photos.data ?? []
+  const without = (set: Set<string>, id: string) => {
+    const next = new Set(set)
+    next.delete(id)
+    return next
+  }
+  const remove = useMutation({
+    mutationFn: (p: AdminPhoto) =>
+      api(`/events/${d.slug}/admin/photos/${p.id}`, {
+        method: 'DELETE',
+        auth: { session: true, admin: d.slug },
+      }),
+    onSuccess: () => {
+      toast.show('写真を削除しました', 'info')
+      // 取り除くアニメーションが終わってから読み直す（先に読み直すと、途中でカードが消える）
+      setTimeout(refresh, LEAVE_MS)
+    },
+    onError: (e, p) => {
+      // 一覧に戻す（アニメーションの途中なら、外すタイマーも止める）
+      clearTimeout(leaveTimers.current.get(p.id))
+      leaveTimers.current.delete(p.id)
+      setLeaving((s) => without(s, p.id))
+      setRemoved((s) => without(s, p.id))
+      if (!guard(e)) toast.show(e.message)
+    },
+  })
+  const confirmDelete = (p: AdminPhoto) => {
+    setDeleteTarget(null)
+    // 先に一覧から取り除く（薄くして縮める → 300ms 後に外す）。失敗したら onError で戻す
+    setLeaving((s) => new Set(s).add(p.id))
+    const timer = setTimeout(() => {
+      leaveTimers.current.delete(p.id)
+      setRemoved((s) => new Set(s).add(p.id))
+    }, LEAVE_MS)
+    leaveTimers.current.set(p.id, timer)
+    remove.mutate(p)
+  }
+
+  const all = (photos.data ?? []).filter((p) => !removed.has(p.id))
+  // OGP（LINE などのプレビュー）と合言葉の画面に使う写真：「誰でも」の公開写真のうち並び順の先頭（spec.md 17.3）
+  const ogPhotoId = all.find((p) => p.status === 'approved' && p.visibility === 'public')?.id
   let list = all.filter((p) => matches(p, filter))
   if (filter === 'approved' && order) {
     const byId = new Map(list.map((p) => [p.id, p]))
@@ -172,9 +224,13 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
           <li
             key={p.id}
             data-photo-id={p.id}
-            className={cx('flex flex-col gap-2', dragId === p.id && 'opacity-60')}
+            className={cx(
+              'flex flex-col gap-2 transition-[opacity,transform] duration-300 motion-reduce:transition-none',
+              dragId === p.id && 'opacity-60',
+              leaving.has(p.id) && 'pointer-events-none scale-90 opacity-0',
+            )}
           >
-            <div className="relative">
+            <div className="group relative">
               <Polaroid
                 tilt={GALLERY_TILTS[i % GALLERY_TILTS.length]}
                 caption={p.title || ' '}
@@ -193,6 +249,20 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
                   className="absolute -left-2 -top-2 inline-flex h-tap w-tap cursor-grab touch-none items-center justify-center rounded-full border border-line bg-card text-off"
                 >
                   <DragIcon size={18} />
+                </button>
+              )}
+              {filter === 'approved' && (
+                // 並べ替えのつまみ（左上）から離して右上に置く。スマホは常に小さく出し、
+                // マウスのある端末ではカードに乗せたとき（またはキーボードで選んだとき）だけ出す
+                <button
+                  type="button"
+                  aria-label={`${p.title || p.caption || 'この写真'}を削除`}
+                  onClick={() => setDeleteTarget(p)}
+                  className="absolute -right-2 -top-2 inline-flex h-tap w-tap items-center justify-center rounded-full focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100"
+                >
+                  <span className="inline-flex size-7 items-center justify-center rounded-full border border-sepia/60 bg-card text-sepia hover:border-maybe hover:text-maybe-ink">
+                    <TrashIcon size={14} />
+                  </span>
                 </button>
               )}
             </div>
@@ -284,6 +354,44 @@ export function PhotosTab({ event: d }: { event: AdminEvent }) {
         photo={all.find((p) => p.id === detailId) ?? null}
         onClose={() => setDetailId(null)}
       />
+      <Dialog
+        open={!!deleteTarget}
+        title="この写真を削除しますか？"
+        confirmLabel="削除する"
+        caution
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && confirmDelete(deleteTarget)}
+      >
+        {deleteTarget && (
+          <>
+            <div className="flex items-start gap-3">
+              <Polaroid tilt="-rotate-1" bottom="pb-3" className="w-[104px] shrink-0 px-1.5 pt-1.5">
+                <AdminImage slug={d.slug} photo={deleteTarget} index={0} />
+              </Polaroid>
+              <div className="min-w-0 flex-1 text-note">
+                {deleteTarget.title && (
+                  <p className="break-words font-medium text-ink">{deleteTarget.title}</p>
+                )}
+                <p className="break-words font-hand text-body text-sepia-ink">
+                  {deleteTarget.caption || 'キャプションなし'}
+                </p>
+                <p className="mt-1 text-tiny text-muted">
+                  {deleteTarget.uploaderName} ・ {formatDateTime(deleteTarget.createdAt)}
+                </p>
+              </div>
+            </div>
+            <p>
+              この写真は参加者のギャラリーからも消えます。
+              <strong className="font-medium text-maybe-ink">元に戻せません。</strong>
+            </p>
+            {deleteTarget.id === ogPhotoId && (
+              <p className="text-note text-sepia-ink">
+                共有時のプレビュー画像も変わります（合言葉の画面とLINEのカードに使っている写真です）。
+              </p>
+            )}
+          </>
+        )}
+      </Dialog>
       <Dialog
         open={!!publicTarget}
         title="誰でも見られるようにしますか？"

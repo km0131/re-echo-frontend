@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Link } from 'react-router'
 import { Page } from '../../components/Page'
 import { useEventDetail } from '../../lib/participant'
 import { storage } from '../../lib/storage'
@@ -70,6 +71,15 @@ export function TopScreen({ slug, onGateLost }: { slug: string; onGateLost: () =
             responses={d.responses}
             highlightId={d.confirmed?.candidateId ?? d.best[0]}
           />
+          {/* このスマホで未回答でも、別のスマホで回答した人は名前＋PINで直せる（design.md 4章） */}
+          {!answered && d.responses.some((r) => r.hasPin) && (
+            <Link
+              to={`/e/${slug}/edit`}
+              className="inline-flex min-h-tap items-center self-start px-1 text-label text-muted underline underline-offset-4 hover:text-navy"
+            >
+              別のスマホで回答した人は、こちらから回答を直す
+            </Link>
+          )}
         </section>
 
         <Comments responses={d.responses} />
