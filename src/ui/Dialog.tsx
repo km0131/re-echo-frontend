@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { Button } from './Button'
 
 /** 確認ダイアログ（ネイティブの dialog 要素。Esc で閉じる） */
@@ -24,6 +24,7 @@ export function Dialog({
   caution?: boolean
 }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
   useEffect(() => {
     const d = ref.current
     if (!d) return
@@ -33,6 +34,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onClose={onClose}
       onCancel={(e) => {
         e.preventDefault()
@@ -48,7 +50,9 @@ export function Dialog({
           onConfirm()
         }}
       >
-        <h2 className="font-hand text-h2-admin text-navy">{title}</h2>
+        <h2 id={titleId} className="font-hand text-h2-admin text-navy">
+          {title}
+        </h2>
         {children && <div className="flex flex-col gap-3 text-body">{children}</div>}
         <div className="flex flex-col gap-2">
           <Button

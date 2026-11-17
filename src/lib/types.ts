@@ -189,3 +189,13 @@ export type PhotoComment = {
   status?: 'visible' | 'hidden'
 }
 export type CreateCommentResult = { comment: PhotoComment; deleteToken: string }
+
+// --- 幹事による回答の編集（修正03。spec.md 16章） ---
+export type UpdatedBy = 'self' | 'admin'
+export type AdminResponseItem = ResponseItem & { updatedBy: UpdatedBy; survey: SurveyAnswer[] }
+export type AdminResponseInput = {
+  name: string
+  comment: string
+  choices: Record<string, Choice>
+  survey?: SurveyAnswer[]
+}

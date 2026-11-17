@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
 import AnswerPage from './routes/event/AnswerPage'
 import DonePage from './routes/event/DonePage'
 import EditPage from './routes/event/EditPage'
+import PinChangePage from './routes/event/PinChangePage'
 import EventPage from './routes/event/EventPage'
 import AdminPage from './routes/admin/AdminPage'
 import DashboardPage from './routes/admin/DashboardPage'
@@ -25,6 +26,7 @@ const routes: RouteObject[] = [
       { path: '/e/:slug/answer', element: <AnswerPage /> },
       { path: '/e/:slug/answer/done', element: <DonePage /> },
       { path: '/e/:slug/edit', element: <EditPage /> },
+      { path: '/e/:slug/pin', element: <PinChangePage /> },
       { path: '/e/:slug/gallery', element: <GalleryPage /> },
       { path: '/e/:slug/gallery/upload', element: <UploadPage /> },
       { path: '/login', element: <LoginPage /> },
